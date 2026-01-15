@@ -38,6 +38,8 @@ internal class Scanner(val source: String) {
                 if (match('/')) {
                     // A comment goes until the end of the line.
                     while (peek() != '\n' && !isAtEnd()) advance()
+                } else if (match('*')) {
+                    blockComment()
                 } else {
                     addToken(TokenType.SLASH)
                 }
@@ -57,10 +59,24 @@ internal class Scanner(val source: String) {
         }
     }
 
+    private fun blockComment() {
+        while (!(peek() == '*' && peekNext() == '/') && !isAtEnd()) {
+            if (advance() == '\n') line++
+        }
+
+        if (isAtEnd()) {
+            Lox.error(line, "Unterminated block comment.")
+            return
+        }
+
+        // The closing "*/"
+        advance()
+        advance()
+    }
+
     private fun string() {
         while (peek() != '"' && !isAtEnd()) {
-            if (peek() == '\n') line++
-            advance()
+            if (advance() == '\n') line++
         }
 
         if (isAtEnd()) {
