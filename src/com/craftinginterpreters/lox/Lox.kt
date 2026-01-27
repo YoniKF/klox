@@ -45,18 +45,19 @@ internal object Lox {
     private fun run(source: String) {
         val scanner = Scanner(source)
         val tokens = scanner.scanTokens()
-        for (token in tokens) {
-            println(token)
-        }
+        val expression = parse(tokens)
+        if (hasError) return
+        println(print(expression!!))
     }
 
-    internal fun error(line: Int, message: String) {
-        report(line, "", message)
-    }
+    internal fun error(line: Int, message: String) = report(line, "", message)
+
+    fun error(token: Token, message: String) = report(
+        token.line, " at ${if (token.type == TokenType.EOF) "end" else "'${token.lexeme}'"}", message
+    )
 
     private fun report(line: Int, where: String, message: String) {
         System.err.println("[line $line] Error$where: $message")
         hasError = true
     }
-
 }
