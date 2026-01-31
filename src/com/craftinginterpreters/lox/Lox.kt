@@ -5,10 +5,14 @@ import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
 internal object Lox {
+    // https://www.freebsd.org/cgi/man.cgi?query=sysexits&apropos=0&sektion=0&manpath=FreeBSD+4.3-RELEASE&format=html
     private const val EX_USAGE = 64
     private const val EX_DATAERR = 65
+    private const val EX_SOFTWARE = 70
 
-    private var hasError = false
+    private val interpreter = Interpreter
+    private var hadError = false
+    private var hadRuntimeError = false
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -30,7 +34,8 @@ internal object Lox {
 
     private fun runFile(path: String) {
         run(Path(path).readText())
-        if (hasError) exitProcess(EX_DATAERR)
+        if (hadError) exitProcess(EX_DATAERR)
+        if (hadRuntimeError) exitProcess(EX_SOFTWARE)
     }
 
     private fun runPrompt() {
@@ -38,7 +43,7 @@ internal object Lox {
             print("> ")
             val line = readlnOrNull() ?: break
             run(line)
-            hasError = false
+            hadError = false
         }
     }
 
@@ -46,18 +51,24 @@ internal object Lox {
         val scanner = Scanner(source)
         val tokens = scanner.scanTokens()
         val expression = parse(tokens)
-        if (hasError) return
-        println(print(expression!!))
+        if (hadError) return
+        expression!!
+        interpreter.interpret(expression)
     }
 
     internal fun error(line: Int, message: String) = report(line, "", message)
 
-    fun error(token: Token, message: String) = report(
+    internal fun error(token: Token, message: String) = report(
         token.line, " at ${if (token.type == TokenType.EOF) "end" else "'${token.lexeme}'"}", message
     )
 
     private fun report(line: Int, where: String, message: String) {
         System.err.println("[line $line] Error$where: $message")
-        hasError = true
+        hadError = true
+    }
+
+    internal fun runtimeError(error: RuntimeError) {
+        System.err.println("${error.message}\n[line ${error.token.line}]")
+        hadRuntimeError = true
     }
 }
