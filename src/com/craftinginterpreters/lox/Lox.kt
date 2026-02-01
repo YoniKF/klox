@@ -48,8 +48,7 @@ internal object Lox {
     }
 
     private fun run(source: String) {
-        val scanner = Scanner(source)
-        val tokens = scanner.scanTokens()
+        val tokens = scan(source)
         val expression = parse(tokens)
         if (hadError) return
         expression!!

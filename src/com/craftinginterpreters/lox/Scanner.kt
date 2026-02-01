@@ -1,22 +1,95 @@
 package com.craftinginterpreters.lox
 
-internal class Scanner(val source: String) {
-    private val tokens: MutableList<Token> = ArrayList()
-    private var start = 0
-    private var current = 0
-    private var line = 1
-
-    fun scanTokens(): List<Token> {
-        while (!isAtEnd()) {
-            start = current
-            scanToken()
+internal fun scan(source: String): List<Token> {
+    var start = 0
+    var current = 0
+    var line = 1
+    fun atEnd() = current >= source.length
+    fun advance() = source[current++]
+    fun current() = source[current]
+    fun text() = source.substring(start, current)
+    fun peek() = source.getOrNull(current)
+    fun peekNext() = source.getOrNull(current + 1)
+    fun match(expected: Char): Boolean = when {
+        atEnd() -> false
+        current() != expected -> false
+        else -> {
+            advance()
+            true
         }
-
-        tokens.add(Token(TokenType.EOF, "", null, line))
-        return tokens
     }
 
-    private fun scanToken() {
+    fun advanceWhile(predicate: (Char) -> Boolean) {
+        while (peek()?.let(predicate) ?: false) advance()
+    }
+
+
+    val tokens = ArrayList<Token>()
+
+    fun addToken(type: TokenType, literal: Any?) {
+        tokens += Token(type, text(), literal, line)
+    }
+
+    fun addToken(type: TokenType) = addToken(type, null)
+
+    // A comment goes until the end of the line
+    fun comment() = advanceWhile { it != '\n' }
+
+
+    fun blockComment() {
+        while (peek()?.let { it != '*' || peekNext() != '/' } ?: false) {
+            if (advance() == '\n') ++line
+        }
+
+        if (atEnd()) {
+            Lox.error(line, "Unterminated block comment.")
+            return
+        }
+
+        // The closing "*/"
+        advance()
+        advance()
+    }
+
+    fun string() {
+        while (peek()?.let { it != '"' } ?: false) {
+            if (advance() == '\n') ++line
+        }
+
+        if (atEnd()) {
+            Lox.error(line, "Unterminated string.")
+            return
+        }
+
+        // The closing '"'
+        advance()
+
+        // Trim the surrounding quotes
+        val value = source.substring(start + 1, current - 1)
+        addToken(TokenType.STRING, value)
+    }
+
+    fun number() {
+        advanceWhile(::isDigit)
+        // Look for a fractional part
+        if (peek() == '.' && peekNext()?.let(::isDigit) ?: false) {
+            // Consume the '.'
+            advance()
+            advanceWhile(::isDigit)
+        }
+
+        val value = text().toDouble()
+        addToken(TokenType.NUMBER, value)
+    }
+
+    fun identifier() {
+        advanceWhile(::isAlphaNumeric)
+        val type = keywords[text()] ?: TokenType.IDENTIFIER
+        addToken(type)
+    }
+
+    while (!atEnd()) {
+        start = current
         when (val c = advance()) {
             '(' -> addToken(TokenType.LEFT_PAREN)
             ')' -> addToken(TokenType.RIGHT_PAREN)
@@ -36,8 +109,7 @@ internal class Scanner(val source: String) {
 
             '/' -> {
                 if (match('/')) {
-                    // A comment goes until the end of the line.
-                    while (peek() != '\n' && !isAtEnd()) advance()
+                    comment()
                 } else if (match('*')) {
                     blockComment()
                 } else {
@@ -59,108 +131,29 @@ internal class Scanner(val source: String) {
         }
     }
 
-    private fun blockComment() {
-        while (!(peek() == '*' && peekNext() == '/') && !isAtEnd()) {
-            if (advance() == '\n') line++
-        }
-
-        if (isAtEnd()) {
-            Lox.error(line, "Unterminated block comment.")
-            return
-        }
-
-        // The closing "*/"
-        advance()
-        advance()
-    }
-
-    private fun string() {
-        while (peek() != '"' && !isAtEnd()) {
-            if (advance() == '\n') line++
-        }
-
-        if (isAtEnd()) {
-            Lox.error(line, "Unterminated string.")
-            return
-        }
-
-        // The closing '"'
-        advance()
-
-        // Trim the surrounding quotes
-        val value = source.substring(start + 1, current - 1)
-        addToken(TokenType.STRING, value)
-    }
-
-    private fun number() {
-        while (isDigit(peek())) advance()
-
-        // Look for a fractional part
-        if (peek() == '.' && isDigit(peekNext())) {
-            // Consume the '.'
-            advance()
-
-            while (isDigit(peek())) advance()
-        }
-
-        addToken(TokenType.NUMBER, source.substring(start, current).toDouble())
-    }
-
-    private fun identifier() {
-        while (isAlphaNumeric(peek())) advance()
-        val text = source.substring(start, current)
-        val type = keywords[text] ?: TokenType.IDENTIFIER
-        addToken(type)
-    }
-
-    private fun match(expected: Char): Boolean {
-        return when {
-            isAtEnd() -> false
-            source[current] != expected -> false
-            else -> {
-                current++
-                true
-            }
-        }
-    }
-
-    private fun peek() = if (isAtEnd()) '\u0000' else source[current]
-
-    private fun peekNext() = if (current + 1 >= source.length) '\u0000' else source[current + 1]
-
-    private fun isAtEnd() = current >= source.length
-
-    private fun advance() = source[current++]
-
-    private fun addToken(type: TokenType) = addToken(type, null)
-
-    private fun addToken(type: TokenType, literal: Any?) {
-        val text = source.substring(start, current)
-        tokens.add(Token(type, text, literal, line))
-    }
-
-    companion object {
-        private fun isDigit(c: Char) = c in '0'..'9'
-        private fun isAlpha(c: Char) = c in 'a'..'z' || c in 'A'..'Z' || c == '_'
-        private fun isAlphaNumeric(c: Char) = isAlpha(c) || isDigit(c)
-
-        private val keywords = mapOf(
-            "and" to TokenType.AND,
-            "class" to TokenType.CLASS,
-            "else" to TokenType.ELSE,
-            "false" to TokenType.FALSE,
-            "for" to TokenType.FOR,
-            "fun" to TokenType.FUN,
-            "if" to TokenType.IF,
-            "nil" to TokenType.NIL,
-            "or" to TokenType.OR,
-            "print" to TokenType.PRINT,
-            "return" to TokenType.RETURN,
-            "super" to TokenType.SUPER,
-            "this" to TokenType.THIS,
-            "true" to TokenType.TRUE,
-            "var" to TokenType.VAR,
-            "while" to TokenType.WHILE,
-        )
-    }
+    tokens += Token(TokenType.EOF, "", null, line)
+    return tokens
 }
+
+private fun isDigit(c: Char) = c in '0'..'9'
+private fun isAlpha(c: Char) = c in 'a'..'z' || c in 'A'..'Z' || c == '_'
+private fun isAlphaNumeric(c: Char) = isAlpha(c) || isDigit(c)
+
+private val keywords = mapOf(
+    "and" to TokenType.AND,
+    "class" to TokenType.CLASS,
+    "else" to TokenType.ELSE,
+    "false" to TokenType.FALSE,
+    "for" to TokenType.FOR,
+    "fun" to TokenType.FUN,
+    "if" to TokenType.IF,
+    "nil" to TokenType.NIL,
+    "or" to TokenType.OR,
+    "print" to TokenType.PRINT,
+    "return" to TokenType.RETURN,
+    "super" to TokenType.SUPER,
+    "this" to TokenType.THIS,
+    "true" to TokenType.TRUE,
+    "var" to TokenType.VAR,
+    "while" to TokenType.WHILE,
+)
