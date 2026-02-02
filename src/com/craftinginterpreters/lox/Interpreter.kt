@@ -3,11 +3,20 @@ package com.craftinginterpreters.lox
 internal class RuntimeError(val token: Token, message: String) : RuntimeException(message)
 
 internal object Interpreter {
-    internal fun interpret(expr: Expr) = try {
-        val value = evaluate(expr)
-        println(stringify(value))
+    private val environment = Environment()
+
+    internal fun interpret(statements: List<Stmt>) = try {
+        statements.forEach(::execute)
     } catch (error: RuntimeError) {
         Lox.runtimeError(error)
+    }
+
+    private fun execute(stmt: Stmt) {
+        when (stmt) {
+            is Stmt.Expression -> evaluate(stmt.expression)
+            is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
+            is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
+        }
     }
 
     private fun evaluate(expr: Expr): Any? = when (expr) {
@@ -54,6 +63,9 @@ internal object Interpreter {
                 else -> null // Unreachable
             }
         }
+
+        is Expr.Variable -> environment.get(expr.name)
+        is Expr.Assign -> evaluate(expr.value).also { environment.assign(expr.name, it) }
     }
 }
 

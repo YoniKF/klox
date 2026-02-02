@@ -5,6 +5,8 @@ internal fun print(expr: Expr): String = when (expr) {
     is Expr.Grouping -> parenthesize("group", expr.expression)
     is Expr.Literal -> expr.value?.toString() ?: "nil"
     is Expr.Unary -> parenthesize(expr.operator.lexeme, expr.right)
+    is Expr.Variable -> expr.name.lexeme
+    is Expr.Assign -> parenthesize("assign ${expr.name.lexeme}", expr.value)
 }
 
 private fun parenthesize(name: String, vararg exprs: Expr) = exprs.joinToString(

@@ -49,10 +49,10 @@ internal object Lox {
 
     private fun run(source: String) {
         val tokens = scan(source)
-        val expression = parse(tokens)
+        val statements = parse(tokens)
+        // Stop if there was a syntax error
         if (hadError) return
-        expression!!
-        interpreter.interpret(expression)
+        interpreter.interpret(statements)
     }
 
     internal fun error(line: Int, message: String) = report(line, "", message)
