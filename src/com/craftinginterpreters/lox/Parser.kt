@@ -14,7 +14,7 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
 
         private fun declaration(): Stmt? {
             try {
-                if (match(TokenType.VAR)) return varDeclaration()
+                match(TokenType.VAR)?.let { return varDeclaration() }
                 return statement()
             } catch (_: ParseError) {
                 synchronize()
@@ -24,14 +24,14 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
 
         private fun varDeclaration(): Stmt {
             val name = consume(TokenType.IDENTIFIER, "Expect variable name.")
-            val initializer = if (match(TokenType.EQUAL)) expression() else null
+            val initializer = match(TokenType.EQUAL)?.let { expression() }
             consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.")
             return Stmt.Var(name, initializer)
         }
 
         private fun statement(): Stmt {
-            if (match(TokenType.PRINT)) return printStatement()
-            if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
+            match(TokenType.PRINT)?.let { return printStatement() }
+            match(TokenType.LEFT_BRACE)?.let { return Stmt.Block(block()) }
             return expressionStatement()
         }
 
@@ -58,51 +58,75 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
 
         private fun assignment(): Expr {
             val expr = equality()
-            if (match(TokenType.EQUAL)) {
-                val equal = previous()
-                val value = assignment()
-                when (expr) {
-                    is Expr.Variable -> return Expr.Assign(expr.name, value)
-                    else -> error(equal, "Invalid assignment target.")
+            val equal = match(TokenType.EQUAL) ?: return expr
+            val value = assignment()
+            return when (expr) {
+                is Expr.Variable -> Expr.Assign(expr.name, value)
+                else -> {
+                    error(equal, "Invalid assignment target.")
+                    expr // Return whatever we could parse
                 }
             }
-            return expr
         }
 
-        private fun binary(next: () -> Expr, vararg operators: TokenType): () -> Expr = {
+        private fun binary(next: () -> Expr, map: Map<TokenType, BinaryOperator>): () -> Expr = {
             var expr = next()
-            while (match(*operators)) {
-                val operator = previous()
+            while (true) {
+                val (token, operator) = match(map) ?: break
                 val right = next()
-                expr = Expr.Binary(expr, operator, right)
+                expr = Expr.Binary(expr, operator, token, right)
             }
             expr
         }
 
-        private val factor = binary(::unary, TokenType.SLASH, TokenType.STAR)
-        private val term = binary(factor, TokenType.MINUS, TokenType.PLUS)
-        private val comparison =
-            binary(term, TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL)
-        private val equality = binary(comparison, TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL)
+        private val factor = binary(
+            ::unary, mapOf(
+                TokenType.SLASH to BinaryOperator.SLASH,
+                TokenType.STAR to BinaryOperator.STAR
+            )
+        )
+        private val term = binary(
+            factor, mapOf(
+                TokenType.MINUS to BinaryOperator.MINUS,
+                TokenType.PLUS to BinaryOperator.PLUS
+            )
+        )
+        private val comparison = binary(
+            term, mapOf(
+                TokenType.GREATER to BinaryOperator.GREATER,
+                TokenType.GREATER_EQUAL to BinaryOperator.GREATER_EQUAL,
+                TokenType.LESS to BinaryOperator.LESS,
+                TokenType.LESS_EQUAL to BinaryOperator.LESS_EQUAL,
+            )
+        )
+        private val equality = binary(
+            comparison, mapOf(
+                TokenType.BANG_EQUAL to BinaryOperator.BANG_EQUAL,
+                TokenType.EQUAL_EQUAL to BinaryOperator.EQUAL_EQUAL,
+            )
+        )
+
+        private val tokenToUnaryOperator = mapOf(
+            TokenType.MINUS to UnaryOperator.MINUS,
+            TokenType.BANG to UnaryOperator.BANG
+        )
 
         private fun unary(): Expr {
-            if (match(TokenType.BANG, TokenType.MINUS)) {
-                val operator = previous()
-                val right = unary()
-                return Expr.Unary(operator, right)
-            }
-            return primary()
+            val (token, operator) = match(tokenToUnaryOperator) ?: return primary()
+            val right = unary()
+            return Expr.Unary(operator, token, right)
         }
 
         private fun primary(): Expr {
-            if (match(TokenType.FALSE)) return Expr.Literal(false)
-            if (match(TokenType.TRUE)) return Expr.Literal(true)
-            if (match(TokenType.NIL)) return Expr.Literal(null)
+            match(TokenType.FALSE)?.let { return Expr.Literal(Value.Boolean(false)) }
+            match(TokenType.TRUE)?.let { return Expr.Literal(Value.Boolean(true)) }
+            match(TokenType.NIL)?.let { return Expr.Literal(Value.Nil) }
 
-            if (match(TokenType.NUMBER, TokenType.STRING)) return Expr.Literal(previous().literal)
-            if (match(TokenType.IDENTIFIER)) return Expr.Variable(previous())
+            matchNumberLiteral()?.let { return Expr.Literal(Value.Number(it)) }
+            matchStringLiteral()?.let { return Expr.Literal(Value.String(it)) }
+            match(TokenType.IDENTIFIER)?.let { return Expr.Variable(it) }
 
-            if (match(TokenType.LEFT_PAREN)) {
+            match(TokenType.LEFT_PAREN)?.let {
                 val expr = expression()
                 consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.")
                 return Expr.Grouping(expr)
@@ -112,22 +136,38 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
         }
 
         private var current = 0
-        private fun peek() = tokens[current]
-        private fun previous() = tokens[current - 1]
-        private fun check(type: TokenType) = peek().type == type
-        private fun atEnd() = check(TokenType.EOF)
-
-        private fun advance(): Token {
-            if (!atEnd()) ++current
-            return previous()
+        private fun peek(): Token = tokens[current]
+        private fun advance() {
+            ++current
         }
 
-        private fun match(vararg types: TokenType) = (peek().type in types).also { if (it) advance() }
+        @Suppress("SameParameterValue")
+        private fun check(type: TokenType): Boolean = (peek() as? Token.Simple)?.type == type
+        private fun atEnd(): Boolean = peek() is Token.Eof
 
-        private fun consume(type: TokenType, message: String): Token {
-            if (check(type)) return advance()
-            throw error(peek(), message)
+        private fun match(type: TokenType): Token.Simple? = when (val token = peek()) {
+            !is Token.Simple -> null
+            else if token.type == type -> {
+                advance()
+                token
+            }
+
+            else -> null
         }
+
+        private fun <R> match(map: Map<TokenType, R>): Pair<Token.Simple, R>? {
+            val token = peek()
+            if (token !is Token.Simple) return null
+            val mapped = map[token.type] ?: return null
+            advance()
+            return Pair(token, mapped)
+        }
+
+        private fun matchNumberLiteral(): Double? = (peek() as? Token.Number)?.let { advance(); it.value }
+        private fun matchStringLiteral(): String? = (peek() as? Token.String)?.let { advance(); it.value }
+
+        private fun consume(type: TokenType, message: String): Token.Simple =
+            match(type) ?: throw error(peek(), message)
 
         private fun error(token: Token, message: String): ParseError {
             Lox.error(token, message)
@@ -135,11 +175,18 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
         }
 
         private fun synchronize() {
-            advance()
-            while (!atEnd()) {
-                if (previous().type == TokenType.SEMICOLON) return
-                when (peek().type) {
-                    TokenType.CLASS, TokenType.FUN, TokenType.VAR, TokenType.FOR, TokenType.IF, TokenType.WHILE, TokenType.PRINT, TokenType.RETURN -> return
+            while (true) {
+                when (val token = peek()) {
+                    is Token.Eof -> return
+                    is Token.Simple -> when (token.type) {
+                        TokenType.SEMICOLON -> {
+                            advance()
+                            return
+                        }
+
+                        TokenType.CLASS, TokenType.FUN, TokenType.VAR, TokenType.FOR, TokenType.IF, TokenType.WHILE, TokenType.PRINT, TokenType.RETURN -> return
+                        else -> advance()
+                    }
 
                     else -> advance()
                 }

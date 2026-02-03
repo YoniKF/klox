@@ -58,7 +58,12 @@ internal object Lox {
     internal fun error(line: Int, message: String) = report(line, "", message)
 
     internal fun error(token: Token, message: String) = report(
-        token.line, " at ${if (token.type == TokenType.EOF) "end" else "'${token.lexeme}'"}", message
+        token.line, " at ${
+            when (token) {
+                is Token.Eof -> "end"
+                is Token.WithLexeme -> "'${token.lexeme}'"
+            }
+        }", message
     )
 
     private fun report(line: Int, where: String, message: String) {

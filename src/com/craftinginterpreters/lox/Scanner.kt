@@ -23,14 +23,11 @@ internal fun scan(source: String): List<Token> {
         while (peek()?.let(predicate) ?: false) advance()
     }
 
-
     val tokens = ArrayList<Token>()
 
-    fun addToken(type: TokenType, literal: Any?) {
-        tokens += Token(type, text(), literal, line)
+    fun addToken(type: TokenType) {
+        tokens += Token.Simple(type, text(), line)
     }
-
-    fun addToken(type: TokenType) = addToken(type, null)
 
     // A comment goes until the end of the line
     fun comment() = advanceWhile { it != '\n' }
@@ -66,7 +63,7 @@ internal fun scan(source: String): List<Token> {
 
         // Trim the surrounding quotes
         val value = source.substring(start + 1, current - 1)
-        addToken(TokenType.STRING, value)
+        tokens += Token.String(text(), value, line)
     }
 
     fun number() {
@@ -79,7 +76,7 @@ internal fun scan(source: String): List<Token> {
         }
 
         val value = text().toDouble()
-        addToken(TokenType.NUMBER, value)
+        tokens += Token.Number(text(), value, line)
     }
 
     fun identifier() {
@@ -131,7 +128,7 @@ internal fun scan(source: String): List<Token> {
         }
     }
 
-    tokens += Token(TokenType.EOF, "", null, line)
+    tokens += Token.Eof(line)
     return tokens
 }
 
