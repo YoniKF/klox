@@ -1,14 +1,17 @@
 package com.craftinginterpreters.lox
 
 internal class Environment(private val enclosing: Environment? = null) {
-    private val values = HashMap<String, Value>()
+    private val values = HashMap<String, Value?>()
 
-    fun define(name: String, value: Value) {
+    fun define(name: String, value: Value?) {
         values[name] = value
     }
 
     fun get(name: Token.Simple): Value {
-        values[name.lexeme]?.let { return it }
+        if (values.containsKey(name.lexeme)) {
+            values[name.lexeme]?.let { return it }
+            throw RuntimeError(name, "Uninitialized variable '${name.lexeme}'.")
+        }
         enclosing?.run { return get(name) }
         throw RuntimeError(name, "Undefined variable '${name.lexeme}'.")
     }

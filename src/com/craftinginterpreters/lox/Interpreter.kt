@@ -14,7 +14,7 @@ internal class Interpreter(private val environment: Environment = Environment())
         when (stmt) {
             is Stmt.Expression -> evaluate(stmt.expression)
             is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
-            is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate) ?: Value.Nil)
+            is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
             is Stmt.Block -> executeBlock(stmt.statements)
         }
     }
