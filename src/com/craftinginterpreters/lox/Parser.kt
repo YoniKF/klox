@@ -31,6 +31,7 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
 
         private fun statement(): Stmt {
             if (match(TokenType.PRINT)) return printStatement()
+            if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
             return expressionStatement()
         }
 
@@ -44,6 +45,13 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
             val expr = expression()
             consume(TokenType.SEMICOLON, "Expect ';' after expression.")
             return Stmt.Expression(expr)
+        }
+
+        private fun block(): List<Stmt> = buildList {
+            while (!check(TokenType.RIGHT_BRACE) && !atEnd()) {
+                declaration()?.also { add(it) }
+            }
+            consume(TokenType.RIGHT_BRACE, "Expect '}' after block.")
         }
 
         private fun expression() = assignment()

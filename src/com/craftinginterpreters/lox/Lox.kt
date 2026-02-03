@@ -10,7 +10,7 @@ internal object Lox {
     private const val EX_DATAERR = 65
     private const val EX_SOFTWARE = 70
 
-    private val interpreter = Interpreter
+    private val interpreter = Interpreter()
     private var hadError = false
     private var hadRuntimeError = false
 
