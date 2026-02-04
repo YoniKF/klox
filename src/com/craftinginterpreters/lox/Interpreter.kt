@@ -18,6 +18,7 @@ internal class Interpreter(private val environment: Environment = Environment())
                 if (truthy(evaluate(stmt.condition))) execute(stmt.then)
                 else if (stmt.otherwise != null) execute(stmt.otherwise)
 
+            is Stmt.While -> while (truthy(evaluate(stmt.condition))) execute(stmt.body)
             is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
             is Stmt.Block -> executeBlock(stmt.statements)
         }
