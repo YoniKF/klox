@@ -10,9 +10,15 @@ internal enum class BinaryOperator {
     LESS, LESS_EQUAL,
 }
 
+internal enum class LogicalBinaryOperator { AND, OR }
+
 // Code in book uses the visitor pattern
 internal sealed interface Expr {
     data class Binary(val left: Expr, val operator: BinaryOperator, val token: Token.Simple, val right: Expr) : Expr
+    data class LogicalBinary(
+        val left: Expr, val operator: LogicalBinaryOperator, val token: Token.Simple, val right: Expr
+    ) : Expr
+
     data class Grouping(val expression: Expr) : Expr
     data class Literal(val value: Value) : Expr
     data class Unary(val operator: UnaryOperator, val token: Token.Simple, val right: Expr) : Expr

@@ -14,6 +14,10 @@ internal class Interpreter(private val environment: Environment = Environment())
         when (stmt) {
             is Stmt.Expression -> evaluate(stmt.expression)
             is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
+            is Stmt.If ->
+                if (truthy(evaluate(stmt.condition))) execute(stmt.then)
+                else if (stmt.otherwise != null) execute(stmt.otherwise)
+
             is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
             is Stmt.Block -> executeBlock(stmt.statements)
         }
@@ -36,7 +40,7 @@ internal class Interpreter(private val environment: Environment = Environment())
 
             when (expr.operator) {
                 UnaryOperator.MINUS -> Value.Number(numberOperand(Double::unaryMinus))
-                UnaryOperator.BANG -> falsy(right)
+                UnaryOperator.BANG -> Value.Boolean(!truthy(right))
             }
         }
 
@@ -67,15 +71,24 @@ internal class Interpreter(private val environment: Environment = Environment())
             }
         }
 
+        is Expr.LogicalBinary -> {
+            val left = evaluate(expr.left)
+            val truthiness = truthy(left)
+            when (expr.operator) {
+                LogicalBinaryOperator.AND -> if (!truthiness) left else evaluate(expr.right)
+                LogicalBinaryOperator.OR -> if (truthiness) left else evaluate(expr.right)
+            }
+        }
+
         is Expr.Variable -> environment.get(expr.name)
         is Expr.Assign -> evaluate(expr.value).also { environment.assign(expr.name, it) }
     }
 }
 
-private fun falsy(value: Value): Value.Boolean = when (value) {
-    Value.Nil -> Value.Boolean(true)
-    is Value.Boolean -> Value.Boolean(!value.value)
-    else -> Value.Boolean(false)
+private fun truthy(value: Value): Boolean = when (value) {
+    Value.Nil -> false
+    is Value.Boolean -> value.value
+    else -> true
 }
 
 private fun stringify(value: Value): String = when (value) {

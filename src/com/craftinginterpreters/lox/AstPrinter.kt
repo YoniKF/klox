@@ -2,6 +2,7 @@ package com.craftinginterpreters.lox
 
 internal fun print(expr: Expr): String = when (expr) {
     is Expr.Binary -> parenthesize(expr.token.lexeme, expr.left, expr.right)
+    is Expr.LogicalBinary -> parenthesize(expr.token.lexeme, expr.left, expr.right)
     is Expr.Grouping -> parenthesize("group", expr.expression)
     is Expr.Literal -> when (val value = expr.value) {
         is Value.Boolean -> value.value.toString()

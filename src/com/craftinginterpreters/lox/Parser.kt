@@ -31,6 +31,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         private fun statement(): Stmt {
             match(TokenType.PRINT)?.let { return printStatement() }
+            match(TokenType.IF)?.let { return ifStatement() }
             match(TokenType.LEFT_BRACE)?.let { return Stmt.Block(block()) }
             return expressionStatement()
         }
@@ -39,6 +40,15 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val expr = expression()
             consume(TokenType.SEMICOLON, "Expect ';' after value.")
             return Stmt.Print(expr)
+        }
+
+        fun ifStatement(): Stmt.If {
+            consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.")
+            val condition = expression()
+            consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition.")
+            val then = statement()
+            val otherwise = match(TokenType.ELSE)?.let { statement() }
+            return Stmt.If(condition, then, otherwise)
         }
 
         private fun expressionStatement(): Stmt {
@@ -59,7 +69,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         private fun expression() = assignment()
 
         private fun assignment(): Expr {
-            val expr = equality()
+            val expr = or()
             val equal = match(TokenType.EQUAL) ?: return expr
             val value = assignment()
             return when (expr) {
@@ -71,15 +81,25 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             }
         }
 
-        private fun binary(next: () -> Expr, map: Map<TokenType, BinaryOperator>): () -> Expr = {
+        private fun <O> genericBinary(
+            next: () -> Expr,
+            map: Map<TokenType, O>,
+            constructor: (Expr, O, Token.Simple, Expr) -> Expr
+        ): () -> Expr = {
             var expr = next()
             while (true) {
                 val (token, operator) = match(map) ?: break
                 val right = next()
-                expr = Expr.Binary(expr, operator, token, right)
+                expr = constructor(expr, operator, token, right)
             }
             expr
         }
+
+        private fun binary(next: () -> Expr, map: Map<TokenType, BinaryOperator>) =
+            genericBinary(next, map, Expr::Binary)
+
+        private fun logicalBinary(next: () -> Expr, map: Map<TokenType, LogicalBinaryOperator>) =
+            genericBinary(next, map, Expr::LogicalBinary)
 
         private val factor = binary(
             ::unary, mapOf(
@@ -107,6 +127,8 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
                 TokenType.EQUAL_EQUAL to BinaryOperator.EQUAL_EQUAL,
             )
         )
+        private val and = logicalBinary(equality, mapOf(TokenType.AND to LogicalBinaryOperator.AND))
+        private val or = logicalBinary(and, mapOf(TokenType.OR to LogicalBinaryOperator.OR))
 
         private val tokenToUnaryOperator = mapOf(
             TokenType.MINUS to UnaryOperator.MINUS,
