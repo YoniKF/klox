@@ -33,7 +33,8 @@ internal object Lox {
     }
 
     private fun runFile(path: String) {
-        run(Path(path).readText())
+        val source = Path(path).readText()
+        run(source, false)
         if (hadError) exitProcess(EX_DATAERR)
         if (hadRuntimeError) exitProcess(EX_SOFTWARE)
     }
@@ -42,14 +43,14 @@ internal object Lox {
         while (true) {
             print("> ")
             val line = readlnOrNull() ?: break
-            run(line)
+            run(line, true)
             hadError = false
         }
     }
 
-    private fun run(source: String) {
+    private fun run(source: String, prompt: Boolean) {
         val tokens = scan(source)
-        val statements = parse(tokens)
+        val statements = parse(tokens, prompt)
         // Stop if there was a syntax error
         if (hadError) return
         interpreter.interpret(statements)

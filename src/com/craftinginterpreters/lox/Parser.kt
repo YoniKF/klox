@@ -2,7 +2,7 @@ package com.craftinginterpreters.lox
 
 internal class ParseError : RuntimeException()
 
-internal fun parse(tokens: List<Token>): List<Stmt> {
+internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     val parser = object {
         fun parse(): List<Stmt> {
             val statements = ArrayList<Stmt>()
@@ -22,7 +22,7 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
             }
         }
 
-        private fun varDeclaration(): Stmt {
+        private fun varDeclaration(): Stmt.Var {
             val name = consume(TokenType.IDENTIFIER, "Expect variable name.")
             val initializer = match(TokenType.EQUAL)?.let { expression() }
             consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.")
@@ -35,7 +35,7 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
             return expressionStatement()
         }
 
-        private fun printStatement(): Stmt {
+        private fun printStatement(): Stmt.Print {
             val expr = expression()
             consume(TokenType.SEMICOLON, "Expect ';' after value.")
             return Stmt.Print(expr)
@@ -43,8 +43,10 @@ internal fun parse(tokens: List<Token>): List<Stmt> {
 
         private fun expressionStatement(): Stmt {
             val expr = expression()
-            consume(TokenType.SEMICOLON, "Expect ';' after expression.")
-            return Stmt.Expression(expr)
+            if (match(TokenType.SEMICOLON) != null) return Stmt.Expression(expr)
+            if (!prompt) throw error(peek(), "Expect ';' after expression.")
+            if (!atEnd()) throw error(peek(), "Expect end of prompt after expression.")
+            return Stmt.Print(expr)
         }
 
         private fun block(): List<Stmt> = buildList {
