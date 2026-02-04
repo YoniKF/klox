@@ -10,24 +10,25 @@ internal class Interpreter(private val environment: Environment = Environment())
         Lox.runtimeError(error)
     }
 
-    private fun execute(stmt: Stmt) {
+    // Returns whether a break statement was encountered during execution
+    private fun execute(stmt: Stmt): Boolean {
         when (stmt) {
             is Stmt.Expression -> evaluate(stmt.expression)
             is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
-            is Stmt.If ->
-                if (truthy(evaluate(stmt.condition))) execute(stmt.then)
-                else if (stmt.otherwise != null) execute(stmt.otherwise)
+            is Stmt.If -> if (truthy(evaluate(stmt.condition))) return execute(stmt.then)
+            else if (stmt.otherwise != null) return execute(stmt.otherwise)
 
-            is Stmt.While -> while (truthy(evaluate(stmt.condition))) execute(stmt.body)
+            is Stmt.While -> while (truthy(evaluate(stmt.condition))) if (execute(stmt.body)) break
+            Stmt.Break -> return true
             is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
-            is Stmt.Block -> executeBlock(stmt.statements)
+            is Stmt.Block -> return executeBlock(stmt.statements)
         }
+        return false
     }
 
-    private fun executeBlock(statements: List<Stmt>) {
-        val interpreter = Interpreter(Environment(environment))
-        statements.forEach(interpreter::execute)
-    }
+    private fun executeBlock(statements: List<Stmt>): Boolean =
+        statements.any(Interpreter(Environment(environment))::execute)
+
 
     private fun evaluate(expr: Expr): Value = when (expr) {
         is Expr.Literal -> expr.value

@@ -138,6 +138,7 @@ private fun isAlphaNumeric(c: Char) = isAlpha(c) || isDigit(c)
 
 private val keywords = mapOf(
     "and" to TokenType.AND,
+    "break" to TokenType.BREAK,
     "class" to TokenType.CLASS,
     "else" to TokenType.ELSE,
     "false" to TokenType.FALSE,

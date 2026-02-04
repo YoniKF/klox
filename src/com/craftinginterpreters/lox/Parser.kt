@@ -34,6 +34,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             if (match(TokenType.IF)) return ifStatement()
             if (match(TokenType.WHILE)) return whileStatement()
             if (match(TokenType.FOR)) return forStatement()
+            if (match(TokenType.BREAK)) return breakStatement()
             if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
             return expressionStatement()
         }
@@ -57,7 +58,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.")
             val condition = expression()
             consume(TokenType.RIGHT_PAREN, "Expect ')' after while condition.")
-            val body = statement()
+            val body = loopBody()
             return Stmt.While(condition, body)
         }
 
@@ -74,12 +75,28 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val increment = if (check(TokenType.RIGHT_PAREN)) null else expression()
             consume(TokenType.RIGHT_PAREN, "Expect ')' after for clauses.")
 
-            val body = statement()
+            val body = loopBody()
 
             val loop = Stmt.While(
                 condition ?: Expr.Literal(Value.Boolean(true)),
                 increment?.let { Stmt.Block(listOf(body, Stmt.Expression(increment))) } ?: body)
             return initializer?.let { Stmt.Block(listOf(initializer, loop)) } ?: loop
+        }
+
+        private var loopDepth = 0
+        private fun loopBody(): Stmt {
+            ++loopDepth
+            val body = statement()
+            --loopDepth
+            return body
+        }
+
+        private fun breakStatement(): Stmt.Break {
+            if (loopDepth == 0) {
+                throw error(tokens[current - 1], "Encountered 'break' outside a loop.")
+            }
+            consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
+            return Stmt.Break
         }
 
         private fun expressionStatement(): Stmt {
