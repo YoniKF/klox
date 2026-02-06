@@ -7,7 +7,7 @@ internal class Environment(private val enclosing: Environment? = null) {
         values[name] = value
     }
 
-    fun get(name: Token.Simple): Value {
+    fun get(name: Token.Identifier): Value {
         if (values.containsKey(name.lexeme)) {
             values[name.lexeme]?.let { return it }
             throw RuntimeError(name, "Uninitialized variable '${name.lexeme}'.")
@@ -16,7 +16,7 @@ internal class Environment(private val enclosing: Environment? = null) {
         throw RuntimeError(name, "Undefined variable '${name.lexeme}'.")
     }
 
-    fun assign(name: Token.Simple, value: Value) {
+    fun assign(name: Token.Identifier, value: Value) {
         if (values.containsKey(name.lexeme)) values[name.lexeme] = value
         else if (enclosing != null) enclosing.assign(name, value)
         else throw RuntimeError(name, "Undefined variable '${name.lexeme}'.")

@@ -1,7 +1,5 @@
 package com.craftinginterpreters.lox
 
-internal class ParseError : RuntimeException()
-
 internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     val parser = object {
         fun parse(): List<Stmt> {
@@ -15,6 +13,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         private fun declaration(): Stmt? {
             try {
                 if (match(TokenType.VAR)) return varDeclaration()
+                if (match(TokenType.FUN)) return function("function")
                 return statement()
             } catch (_: ParseError) {
                 synchronize()
@@ -23,10 +22,31 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun varDeclaration(): Stmt.Var {
-            val name = consume(TokenType.IDENTIFIER, "Expect variable name.")
+            val name = consumerIdentifier("Expect variable name.")
             val initializer = if (match(TokenType.EQUAL)) expression() else null
             consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.")
             return Stmt.Var(name, initializer)
+        }
+
+        private fun function(kind: String): Stmt {
+            val name = consumerIdentifier("Expect $kind name.")
+            consume(TokenType.LEFT_PAREN, "Expect '(' after $kind name.")
+            val parameters = buildList {
+                if (check(TokenType.RIGHT_PAREN)) return@buildList
+                do {
+                    if (size >= 255) error(peek(), "Can't have more than 255 parameters.")
+                    add(consumerIdentifier("Expect parameter name."))
+                } while (match(TokenType.COMMA))
+            }
+            consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
+            consume(TokenType.LEFT_BRACE, "Expect '{' before $kind body.")
+            location.add(Location(function = true, loop = false))
+            val body = try {
+                block()
+            } finally {
+                location.removeLast()
+            }
+            return Stmt.Function(name, parameters, body)
         }
 
         private fun statement(): Stmt {
@@ -35,6 +55,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             if (match(TokenType.WHILE)) return whileStatement()
             if (match(TokenType.FOR)) return forStatement()
             if (match(TokenType.BREAK)) return breakStatement()
+            matchToken(TokenType.RETURN)?.let { return returnStatement(it) }
             if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
             return expressionStatement()
         }
@@ -83,20 +104,33 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return initializer?.let { Stmt.Block(listOf(initializer, loop)) } ?: loop
         }
 
-        private var loopDepth = 0
+        val location = mutableListOf(Location(function = false, loop = false))
+
         private fun loopBody(): Stmt {
-            ++loopDepth
-            val body = statement()
-            --loopDepth
+            location.add(Location(location.last().function, true))
+            val body = try {
+                statement()
+            } finally {
+                location.removeLast()
+            }
             return body
         }
 
         private fun breakStatement(): Stmt.Break {
-            if (loopDepth == 0) {
+            if (!location.last().loop) {
                 throw error(tokens[current - 1], "Encountered 'break' outside a loop.")
             }
             consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
             return Stmt.Break
+        }
+
+        private fun returnStatement(keyword: Token.Simple): Stmt.Return {
+            if (!location.last().function) {
+                throw error(tokens[current - 1], "Encountered 'return' outside a function definition.")
+            }
+            val value = if (check(TokenType.SEMICOLON)) null else expression()
+            consume(TokenType.SEMICOLON, "Expect ';' after return value.")
+            return Stmt.Return(keyword, value)
         }
 
         private fun expressionStatement(): Stmt {
@@ -179,9 +213,26 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         )
 
         private fun unary(): Expr {
-            val (token, operator) = match(tokenToUnaryOperator) ?: return primary()
+            val (token, operator) = match(tokenToUnaryOperator) ?: return call()
             val right = unary()
             return Expr.Unary(operator, token, right)
+        }
+
+        private fun call(): Expr {
+            var expr = primary()
+            while (true) {
+                if (!match(TokenType.LEFT_PAREN)) break
+                val arguments = buildList {
+                    if (check(TokenType.RIGHT_PAREN)) return@buildList
+                    do {
+                        if (size >= 255) error(peek(), "Can't have more than 255 arguments.")
+                        add(expression())
+                    } while (match(TokenType.COMMA))
+                }
+                val paren = consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments.")
+                expr = Expr.Call(expr, paren, arguments)
+            }
+            return expr
         }
 
         private fun primary(): Expr {
@@ -191,7 +242,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
             matchNumberLiteral()?.let { return Expr.Literal(Value.Number(it)) }
             matchStringLiteral()?.let { return Expr.Literal(Value.String(it)) }
-            matchToken(TokenType.IDENTIFIER)?.let { return Expr.Variable(it) }
+            matchIdentifier()?.let { return Expr.Variable(it) }
 
             if (match(TokenType.LEFT_PAREN)) {
                 val expr = expression()
@@ -234,9 +285,13 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         private fun matchNumberLiteral(): Double? = (peek() as? Token.Number)?.let { advance(); it.value }
         private fun matchStringLiteral(): String? = (peek() as? Token.String)?.let { advance(); it.value }
+        private fun matchIdentifier(): Token.Identifier? = (peek() as? Token.Identifier)?.also { advance() }
 
         private fun consume(type: TokenType, message: String): Token.Simple =
             matchToken(type) ?: throw error(peek(), message)
+
+        private fun consumerIdentifier(message: String): Token.Identifier =
+            matchIdentifier() ?: throw error(peek(), message)
 
         private fun error(token: Token, message: String): ParseError {
             Lox.error(token, message)
@@ -265,3 +320,6 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
     return parser.parse()
 }
+
+private data class Location(val function: Boolean, val loop: Boolean)
+private class ParseError : RuntimeException()

@@ -2,42 +2,68 @@ package com.craftinginterpreters.lox
 
 internal class RuntimeError(val token: Token, message: String) : RuntimeException(message)
 
-internal class Interpreter(private val environment: Environment = Environment()) {
+private sealed interface Result {
+    data object Continue : Result
+    data object Break : Result
+    data class Return(val value: Value?) : Result
+}
+
+internal class Interpreter {
+    private val globals: Environment = Environment().apply {
+        define("clock", Value.NativeFunction("clock") { Value.Number(System.currentTimeMillis() / 1000.0) })
+    }
 
     internal fun interpret(statements: List<Stmt>) = try {
-        statements.forEach(::execute)
+        statements.forEach { execute(globals, it) }
     } catch (error: RuntimeError) {
         Lox.runtimeError(error)
     }
 
-    // Returns whether a break statement was encountered during execution
-    private fun execute(stmt: Stmt): Boolean {
-        when (stmt) {
-            is Stmt.Block -> return executeBlock(stmt.statements)
-            is Stmt.Expression -> evaluate(stmt.expression)
-            is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
-            is Stmt.If -> {
-                if (truthy(evaluate(stmt.condition))) return execute(stmt.then)
-                else if (stmt.otherwise != null) return execute(stmt.otherwise)
-            }
-
-            is Stmt.While -> while (truthy(evaluate(stmt.condition))) if (execute(stmt.body)) break
-            Stmt.Break -> return true
-            is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
+    private fun execute(env: Environment, stmt: Stmt): Result = when (stmt) {
+        is Stmt.Block -> executeBlock(Environment(env), stmt.statements)
+        is Stmt.Expression -> evaluate(env, stmt.expression).let { Result.Continue }
+        is Stmt.Print -> println(stringify(evaluate(env, stmt.expression))).let { Result.Continue }
+        is Stmt.If -> {
+            if (truthy(evaluate(env, stmt.condition))) execute(env, stmt.then)
+            else if (stmt.otherwise != null) execute(env, stmt.otherwise)
+            else Result.Continue
         }
-        return false
+
+        is Stmt.While -> generateSequence { execute(env, stmt.body) }.takeWhile {
+            truthy(evaluate(env, stmt.condition))
+        }.firstNotNullOfOrNull {
+            when (it) {
+                Result.Break -> Result.Continue
+                Result.Continue -> null
+                is Result.Return -> it
+            }
+        } ?: Result.Continue
+
+        Stmt.Break -> Result.Break
+        is Stmt.Var -> env.define(stmt.name.lexeme, stmt.initializer?.let { evaluate(env, it) }).let { Result.Continue }
+        is Stmt.Function -> env.define(
+            stmt.name.lexeme,
+            Value.Function(stmt.name.lexeme, stmt.params, stmt.body)
+        ).let { Result.Continue }
+
+        is Stmt.Return -> Result.Return(stmt.value?.let { evaluate(env, it) })
     }
 
-    private fun executeBlock(statements: List<Stmt>): Boolean =
-        statements.any(Interpreter(Environment(environment))::execute)
+    private fun executeBlock(env: Environment, statements: List<Stmt>): Result =
+        statements.firstNotNullOfOrNull {
+            when (val result = execute(env, it)) {
+                Result.Break, is Result.Return -> result
+                Result.Continue -> null
+            }
+        } ?: Result.Continue
 
-    private fun evaluate(expr: Expr): Value = when (expr) {
-        is Expr.Grouping -> evaluate(expr.expression)
+    private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
+        is Expr.Grouping -> evaluate(env, expr.expression)
         is Expr.Literal -> expr.value
-        is Expr.Variable -> environment.get(expr.name)
-        is Expr.Assign -> evaluate(expr.value).also { environment.assign(expr.name, it) }
+        is Expr.Variable -> env.get(expr.name)
+        is Expr.Assign -> evaluate(env, expr.value).also { env.assign(expr.name, it) }
         is Expr.Unary -> {
-            val right = evaluate(expr.right)
+            val right = evaluate(env, expr.right)
             fun <R> numberOperand(block: (Double) -> R): R {
                 if (right is Value.Number) return block(right.value)
                 throw RuntimeError(expr.token, "Operand must be a number.")
@@ -50,8 +76,8 @@ internal class Interpreter(private val environment: Environment = Environment())
         }
 
         is Expr.Binary -> {
-            val left = evaluate(expr.left)
-            val right = evaluate(expr.right)
+            val left = evaluate(env, expr.left)
+            val right = evaluate(env, expr.right)
             fun <R> numberOperands(block: (Double, Double) -> R): R {
                 if (left is Value.Number && right is Value.Number) return block(left.value, right.value)
                 throw RuntimeError(expr.token, "Operands must be numbers.")
@@ -77,12 +103,33 @@ internal class Interpreter(private val environment: Environment = Environment())
         }
 
         is Expr.LogicalBinary -> {
-            val left = evaluate(expr.left)
+            val left = evaluate(env, expr.left)
             val truthiness = truthy(left)
             when (expr.operator) {
-                LogicalBinaryOperator.AND -> if (!truthiness) left else evaluate(expr.right)
-                LogicalBinaryOperator.OR -> if (truthiness) left else evaluate(expr.right)
+                LogicalBinaryOperator.AND -> if (!truthiness) left else evaluate(env, expr.right)
+                LogicalBinaryOperator.OR -> if (truthiness) left else evaluate(env, expr.right)
             }
+        }
+
+        is Expr.Call -> {
+            val callee = evaluate(env, expr.callee)
+            val arguments = expr.arguments.map { evaluate(env, it) }
+            if (callee !is Value.Callable) throw RuntimeError(expr.paren, "Can only call functions and classes.")
+            if (arguments.size != callee.arity) throw RuntimeError(
+                expr.paren, "Expected ${callee.arity} arguments but got ${arguments.size}."
+            )
+            call(callee, arguments)
+        }
+    }
+
+    private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
+        is Value.NativeFunction -> callable.block()
+        is Value.Function -> {
+            val env = Environment(globals).apply {
+                callable.parameters.zip(arguments) { parameter, argument -> define(parameter.lexeme, argument) }
+            }
+            val result = executeBlock(env, callable.body)
+            (result as? Result.Return)?.value ?: Value.Nil
         }
     }
 }
@@ -98,4 +145,6 @@ private fun stringify(value: Value): String = when (value) {
     is Value.Boolean -> value.value.toString()
     is Value.Number -> value.value.toString().removeSuffix(".0")
     is Value.String -> value.value
+    is Value.NativeFunction -> "<native fn ${value.name}>"
+    is Value.Function -> "<fn ${value.name}>"
 }

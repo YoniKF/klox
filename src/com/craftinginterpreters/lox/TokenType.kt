@@ -12,7 +12,7 @@ internal enum class TokenType {
     LESS, LESS_EQUAL,
 
     // Literals.
-    IDENTIFIER, // STRING, NUMBER,
+    // IDENTIFIER, STRING, NUMBER,
 
     // Keywords.
     AND, BREAK, CLASS, ELSE, FALSE, FUN, FOR, IF, NIL, OR,

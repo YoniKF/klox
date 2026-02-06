@@ -81,8 +81,7 @@ internal fun scan(source: String): List<Token> {
 
     fun identifier() {
         advanceWhile(::isAlphaNumeric)
-        val type = keywords[text()] ?: TokenType.IDENTIFIER
-        addToken(type)
+        tokens += keywords[text()]?.let { Token.Simple(it, text(), line) } ?: Token.Identifier(text(), line)
     }
 
     while (!atEnd()) {
