@@ -13,15 +13,17 @@ internal class Interpreter(private val environment: Environment = Environment())
     // Returns whether a break statement was encountered during execution
     private fun execute(stmt: Stmt): Boolean {
         when (stmt) {
+            is Stmt.Block -> return executeBlock(stmt.statements)
             is Stmt.Expression -> evaluate(stmt.expression)
             is Stmt.Print -> println(stringify(evaluate(stmt.expression)))
-            is Stmt.If -> if (truthy(evaluate(stmt.condition))) return execute(stmt.then)
-            else if (stmt.otherwise != null) return execute(stmt.otherwise)
+            is Stmt.If -> {
+                if (truthy(evaluate(stmt.condition))) return execute(stmt.then)
+                else if (stmt.otherwise != null) return execute(stmt.otherwise)
+            }
 
             is Stmt.While -> while (truthy(evaluate(stmt.condition))) if (execute(stmt.body)) break
             Stmt.Break -> return true
             is Stmt.Var -> environment.define(stmt.name.lexeme, stmt.initializer?.let(::evaluate))
-            is Stmt.Block -> return executeBlock(stmt.statements)
         }
         return false
     }
@@ -29,10 +31,11 @@ internal class Interpreter(private val environment: Environment = Environment())
     private fun executeBlock(statements: List<Stmt>): Boolean =
         statements.any(Interpreter(Environment(environment))::execute)
 
-
     private fun evaluate(expr: Expr): Value = when (expr) {
-        is Expr.Literal -> expr.value
         is Expr.Grouping -> evaluate(expr.expression)
+        is Expr.Literal -> expr.value
+        is Expr.Variable -> environment.get(expr.name)
+        is Expr.Assign -> evaluate(expr.value).also { environment.assign(expr.name, it) }
         is Expr.Unary -> {
             val right = evaluate(expr.right)
             fun <R> numberOperand(block: (Double) -> R): R {
@@ -81,9 +84,6 @@ internal class Interpreter(private val environment: Environment = Environment())
                 LogicalBinaryOperator.OR -> if (truthiness) left else evaluate(expr.right)
             }
         }
-
-        is Expr.Variable -> environment.get(expr.name)
-        is Expr.Assign -> evaluate(expr.value).also { environment.assign(expr.name, it) }
     }
 }
 
