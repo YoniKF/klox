@@ -25,4 +25,5 @@ internal sealed interface Expr {
     ) : Expr
 
     data class Call(val callee: Expr, val paren: Token.Simple, val arguments: List<Expr>) : Expr
+    data class AnonymousFunction(val params: List<Token.Identifier>, val body: List<Stmt>): Expr
 }

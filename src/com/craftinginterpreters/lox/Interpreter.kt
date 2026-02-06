@@ -120,6 +120,8 @@ internal class Interpreter {
             )
             call(callee, arguments)
         }
+
+        is Expr.AnonymousFunction -> Value.Function(null, expr.params, expr.body)
     }
 
     private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
@@ -145,6 +147,6 @@ private fun stringify(value: Value): String = when (value) {
     is Value.Boolean -> value.value.toString()
     is Value.Number -> value.value.toString().removeSuffix(".0")
     is Value.String -> value.value
-    is Value.NativeFunction -> "<native fn ${value.name}>"
-    is Value.Function -> "<fn ${value.name}>"
+    is Value.NativeFunction -> "<native fun ${value.name}>"
+    is Value.Function -> value.name?.let { "<fun ${value.name}>" } ?: "<anonymous fun>"
 }

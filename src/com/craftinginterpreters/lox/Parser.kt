@@ -13,7 +13,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         private fun declaration(): Stmt? {
             try {
                 if (match(TokenType.VAR)) return varDeclaration()
-                if (match(TokenType.FUN)) return function("function")
+                if (match(TokenType.FUN)) return function()
                 return statement()
             } catch (_: ParseError) {
                 synchronize()
@@ -28,25 +28,30 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return Stmt.Var(name, initializer)
         }
 
-        private fun function(kind: String): Stmt {
-            val name = consumerIdentifier("Expect $kind name.")
-            consume(TokenType.LEFT_PAREN, "Expect '(' after $kind name.")
-            val parameters = buildList {
-                if (check(TokenType.RIGHT_PAREN)) return@buildList
-                do {
-                    if (size >= 255) error(peek(), "Can't have more than 255 parameters.")
-                    add(consumerIdentifier("Expect parameter name."))
-                } while (match(TokenType.COMMA))
-            }
+        private fun function(): Stmt {
+            val name = matchIdentifier()
+            consume(TokenType.LEFT_PAREN, "Expect '(' after ${if (name == null) "'fun'" else "function name"}.")
+            val params = parameters()
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
-            consume(TokenType.LEFT_BRACE, "Expect '{' before $kind body.")
+            consume(TokenType.LEFT_BRACE, "Expect '{' before function body.")
             location.add(Location(function = true, loop = false))
             val body = try {
                 block()
             } finally {
                 location.removeLast()
             }
-            return Stmt.Function(name, parameters, body)
+
+            if (name != null) return Stmt.Function(name, params, body)
+            val expr = Expr.AnonymousFunction(params, body)
+            return finishExpressionStatement(expr)
+        }
+
+        private fun parameters(): List<Token.Identifier> = buildList {
+            if (check(TokenType.RIGHT_PAREN)) return@buildList
+            do {
+                if (size >= 255) error(peek(), "Can't have more than 255 parameters.")
+                add(consumerIdentifier("Expect parameter name."))
+            } while (match(TokenType.COMMA))
         }
 
         private fun statement(): Stmt {
@@ -135,6 +140,10 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         private fun expressionStatement(): Stmt {
             val expr = expression()
+            return finishExpressionStatement(expr)
+        }
+
+        private fun finishExpressionStatement(expr: Expr): Stmt {
             if (match(TokenType.SEMICOLON)) return Stmt.Expression(expr)
             if (!prompt) throw error(peek(), "Expect ';' after expression.")
             if (!atEnd()) throw error(peek(), "Expect end of prompt after expression.")
@@ -250,7 +259,23 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
                 return Expr.Grouping(expr)
             }
 
+            if (match(TokenType.FUN)) return anonymousFunction()
+
             throw error(peek(), "Expect expression.")
+        }
+
+        private fun anonymousFunction(): Expr.AnonymousFunction {
+            consume(TokenType.LEFT_PAREN, "Expect '(' after 'fun'.")
+            val params = parameters()
+            consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
+            consume(TokenType.LEFT_BRACE, "Expect '{' before anonymous function body.")
+            location.add(Location(function = true, loop = false))
+            val body = try {
+                block()
+            } finally {
+                location.removeLast()
+            }
+            return Expr.AnonymousFunction(params, body)
         }
 
         private var current = 0
