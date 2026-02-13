@@ -34,11 +34,11 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val params = parameters()
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
             consume(TokenType.LEFT_BRACE, "Expect '{' before function body.")
-            location.add(Location(function = true, loop = false))
+            scopes.addLast(Scope(function = true, loop = false))
             val body = try {
                 block()
             } finally {
-                location.removeLast()
+                scopes.removeLast()
             }
 
             if (name != null) return Stmt.Function(name, params, body)
@@ -109,20 +109,20 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return initializer?.let { Stmt.Block(listOf(initializer, loop)) } ?: loop
         }
 
-        val location = mutableListOf(Location(function = false, loop = false))
+        val scopes = mutableListOf(Scope(function = false, loop = false))
 
         private fun loopBody(): Stmt {
-            location.add(Location(location.last().function, true))
+            scopes.addLast(Scope(scopes.last().function, true))
             val body = try {
                 statement()
             } finally {
-                location.removeLast()
+                scopes.removeLast()
             }
             return body
         }
 
         private fun breakStatement(): Stmt.Break {
-            if (!location.last().loop) {
+            if (!scopes.last().loop) {
                 throw error(tokens[current - 1], "Encountered 'break' outside a loop.")
             }
             consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
@@ -130,7 +130,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun returnStatement(keyword: Token.Simple): Stmt.Return {
-            if (!location.last().function) {
+            if (!scopes.last().function) {
                 throw error(tokens[current - 1], "Encountered 'return' outside a function definition.")
             }
             val value = if (check(TokenType.SEMICOLON)) null else expression()
@@ -269,11 +269,11 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val params = parameters()
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
             consume(TokenType.LEFT_BRACE, "Expect '{' before anonymous function body.")
-            location.add(Location(function = true, loop = false))
+            scopes.addLast(Scope(function = true, loop = false))
             val body = try {
                 block()
             } finally {
-                location.removeLast()
+                scopes.removeLast()
             }
             return Expr.AnonymousFunction(params, body)
         }
@@ -346,5 +346,5 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     return parser.parse()
 }
 
-private data class Location(val function: Boolean, val loop: Boolean)
+private data class Scope(val function: Boolean, val loop: Boolean)
 private class ParseError : RuntimeException()
