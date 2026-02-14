@@ -35,7 +35,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return expressionStatement()
         }
 
-        private fun namedFunction(kind: String, name: Token.Identifier): Stmt = function(
+        private fun namedFunction(kind: String, name: Token.Identifier): Stmt.Function = function(
             "Expect '(' after $kind name.",
             "Expect '{' before $kind body."
         ).let { (params, body) -> Stmt.Function(name, params, body) }
@@ -63,7 +63,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return Pair(params, body)
         }
 
-        private fun statement(): Stmt {
+        private fun statement(): Stmt.NonDeclaration {
             if (match(TokenType.PRINT)) return printStatement()
             if (match(TokenType.IF)) return ifStatement()
             if (match(TokenType.WHILE)) return whileStatement()
@@ -97,7 +97,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return Stmt.While(condition, body)
         }
 
-        fun forStatement(): Stmt {
+        fun forStatement(): Stmt.NonDeclaration {
             consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.")
 
             val initializer = if (match(TokenType.SEMICOLON)) null
@@ -120,7 +120,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         val scopes = mutableListOf(Scope(function = false, loop = false))
 
-        private fun loopBody(): Stmt {
+        private fun loopBody(): Stmt.NonDeclaration {
             scopes.addLast(Scope(scopes.last().function, true))
             val body = try {
                 statement()
@@ -147,7 +147,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return Stmt.Return(keyword, value)
         }
 
-        private fun expressionStatement(): Stmt {
+        private fun expressionStatement(): Stmt.NonDeclaration {
             val expr = expression()
             if (match(TokenType.SEMICOLON)) return Stmt.Expression(expr)
             if (!prompt) throw error(peek(), "Expect ';' after expression.")

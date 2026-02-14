@@ -3,8 +3,9 @@ package com.craftinginterpreters.lox
 internal class Environment(private val enclosing: Environment? = null) {
     private val values = HashMap<String, Value?>()
 
-    fun define(name: String, value: Value?) {
+    fun define(name: String, value: Value?): Environment {
         values[name] = value
+        return this
     }
 
     fun get(name: Token.Identifier): Value {

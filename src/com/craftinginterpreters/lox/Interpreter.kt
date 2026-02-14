@@ -14,12 +14,17 @@ internal class Interpreter {
     }
 
     internal fun interpret(statements: List<Stmt>) = try {
-        statements.forEach { execute(globals, it) }
+        statements.forEach {
+            when (it) {
+                is Stmt.NonDeclaration -> execute(globals, it)
+                is Stmt.Declaration -> execute(globals, it)
+            }
+        }
     } catch (error: RuntimeError) {
         Lox.runtimeError(error)
     }
 
-    private fun execute(env: Environment, stmt: Stmt): Result = when (stmt) {
+    private fun execute(env: Environment, stmt: Stmt.NonDeclaration): Result = when (stmt) {
         is Stmt.Block -> executeBlock(Environment(env), stmt.statements)
         is Stmt.Expression -> evaluate(env, stmt.expression).let { Result.Continue }
         is Stmt.Print -> println(stringify(evaluate(env, stmt.expression))).let { Result.Continue }
@@ -40,22 +45,30 @@ internal class Interpreter {
         } ?: Result.Continue
 
         Stmt.Break -> Result.Break
-        is Stmt.Var -> env.define(stmt.name.lexeme, stmt.initializer?.let { evaluate(env, it) }).let { Result.Continue }
-        is Stmt.Function -> env.define(
-            stmt.name.lexeme,
-            Value.Function(stmt.name.lexeme, stmt.params, stmt.body)
-        ).let { Result.Continue }
-
         is Stmt.Return -> Result.Return(stmt.value?.let { evaluate(env, it) })
     }
 
-    private fun executeBlock(env: Environment, statements: List<Stmt>): Result =
-        statements.firstNotNullOfOrNull {
-            when (val result = execute(env, it)) {
-                Result.Break, is Result.Return -> result
-                Result.Continue -> null
+    private fun execute(env: Environment, stmt: Stmt.Declaration): Environment = when (stmt) {
+        is Stmt.Var -> wrapIfNotGlobals(env).define(stmt.name.lexeme, stmt.initializer?.let { evaluate(env, it) })
+        is Stmt.Function -> wrapIfNotGlobals(env).define(
+            stmt.name.lexeme, Value.Function(stmt.name.lexeme, stmt.params, stmt.body)
+        )
+    }
+
+    private fun executeBlock(env: Environment, statements: List<Stmt>): Result {
+        var env = env
+        for (stmt in statements) {
+            when (stmt) {
+                is Stmt.NonDeclaration -> when (val result = execute(env, stmt)) {
+                    is Result.Break, is Result.Return -> return result
+                    is Result.Continue -> {}
+                }
+
+                is Stmt.Declaration -> env = execute(env, stmt)
             }
-        } ?: Result.Continue
+        }
+        return Result.Continue
+    }
 
     private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
         is Expr.Grouping -> evaluate(env, expr.expression)
@@ -134,6 +147,8 @@ internal class Interpreter {
             (result as? Result.Return)?.value ?: Value.Nil
         }
     }
+
+    private fun wrapIfNotGlobals(env: Environment) = if (env == globals) env else Environment(env)
 }
 
 private fun truthy(value: Value): Boolean = when (value) {
