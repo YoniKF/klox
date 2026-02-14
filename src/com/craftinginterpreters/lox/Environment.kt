@@ -3,6 +3,8 @@ package com.craftinginterpreters.lox
 internal class Environment(private val enclosing: Environment? = null) {
     private val values = HashMap<String, Value?>()
 
+    internal val scoped = enclosing != null
+
     fun define(name: String, value: Value?): Environment {
         values[name] = value
         return this
