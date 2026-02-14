@@ -51,7 +51,7 @@ internal class Interpreter {
     private fun execute(env: Environment, stmt: Stmt.Declaration): Environment = when (stmt) {
         is Stmt.Var -> wrapIfNotGlobals(env).define(stmt.name.lexeme, stmt.initializer?.let { evaluate(env, it) })
         is Stmt.Function -> wrapIfNotGlobals(env).define(
-            stmt.name.lexeme, Value.Function(stmt.name.lexeme, stmt.params, stmt.body)
+            stmt.name.lexeme, Value.Function(stmt.name.lexeme, stmt.params, stmt.body, env)
         )
     }
 
@@ -134,13 +134,13 @@ internal class Interpreter {
             call(callee, arguments)
         }
 
-        is Expr.AnonymousFunction -> Value.Function(null, expr.params, expr.body)
+        is Expr.AnonymousFunction -> Value.Function(null, expr.params, expr.body, env)
     }
 
     private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
         is Value.NativeFunction -> callable.block()
         is Value.Function -> {
-            val env = Environment(globals).apply {
+            val env = Environment(callable.closure).apply {
                 callable.parameters.zip(arguments) { parameter, argument -> define(parameter.lexeme, argument) }
             }
             val result = executeBlock(env, callable.body)

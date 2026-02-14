@@ -8,6 +8,10 @@ internal sealed interface Value {
 
     sealed class Callable(val arity: Int) : Value
     data class NativeFunction(val name: kotlin.String, val block: () -> Value) : Callable(0)
-    data class Function(val name: kotlin.String?, val parameters: List<Token.Identifier>, val body: List<Stmt>) :
-        Callable(parameters.size)
+    data class Function(
+        val name: kotlin.String?,
+        val parameters: List<Token.Identifier>,
+        val body: List<Stmt>,
+        val closure: Environment
+    ) : Callable(parameters.size)
 }
