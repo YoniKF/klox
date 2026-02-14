@@ -28,30 +28,39 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return Stmt.Var(name, initializer)
         }
 
-        private fun function(): Stmt {
-            val name = matchIdentifier()
-            consume(TokenType.LEFT_PAREN, "Expect '(' after ${if (name == null) "'fun'" else "function name"}.")
-            val params = parameters()
+        private fun function(): Stmt = matchIdentifier()?.let {
+            namedFunction("function", it)
+        } ?: run {
+            retreat() // Prepare to parse 'fun' as the beginning of an expression
+            return expressionStatement()
+        }
+
+        private fun namedFunction(kind: String, name: Token.Identifier): Stmt = function(
+            "Expect '(' after $kind name.",
+            "Expect '{' before $kind body."
+        ).let { (params, body) -> Stmt.Function(name, params, body) }
+
+        private fun function(
+            expectLeftParen: String,
+            expectLeftBrace: String
+        ): Pair<List<Token.Identifier>, List<Stmt>> {
+            consume(TokenType.LEFT_PAREN, expectLeftParen)
+            val params = buildList {
+                if (check(TokenType.RIGHT_PAREN)) return@buildList
+                do {
+                    if (size >= 255) error(peek(), "Can't have more than 255 parameters.")
+                    add(consumerIdentifier("Expect parameter name."))
+                } while (match(TokenType.COMMA))
+            }
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
-            consume(TokenType.LEFT_BRACE, "Expect '{' before function body.")
+            consume(TokenType.LEFT_BRACE, expectLeftBrace)
             scopes.addLast(Scope(function = true, loop = false))
             val body = try {
                 block()
             } finally {
                 scopes.removeLast()
             }
-
-            if (name != null) return Stmt.Function(name, params, body)
-            val expr = Expr.AnonymousFunction(params, body)
-            return finishExpressionStatement(expr)
-        }
-
-        private fun parameters(): List<Token.Identifier> = buildList {
-            if (check(TokenType.RIGHT_PAREN)) return@buildList
-            do {
-                if (size >= 255) error(peek(), "Can't have more than 255 parameters.")
-                add(consumerIdentifier("Expect parameter name."))
-            } while (match(TokenType.COMMA))
+            return Pair(params, body)
         }
 
         private fun statement(): Stmt {
@@ -140,10 +149,6 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         private fun expressionStatement(): Stmt {
             val expr = expression()
-            return finishExpressionStatement(expr)
-        }
-
-        private fun finishExpressionStatement(expr: Expr): Stmt {
             if (match(TokenType.SEMICOLON)) return Stmt.Expression(expr)
             if (!prompt) throw error(peek(), "Expect ';' after expression.")
             if (!atEnd()) throw error(peek(), "Expect end of prompt after expression.")
@@ -264,24 +269,19 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             throw error(peek(), "Expect expression.")
         }
 
-        private fun anonymousFunction(): Expr.AnonymousFunction {
-            consume(TokenType.LEFT_PAREN, "Expect '(' after 'fun'.")
-            val params = parameters()
-            consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
-            consume(TokenType.LEFT_BRACE, "Expect '{' before anonymous function body.")
-            scopes.addLast(Scope(function = true, loop = false))
-            val body = try {
-                block()
-            } finally {
-                scopes.removeLast()
-            }
-            return Expr.AnonymousFunction(params, body)
-        }
+        private fun anonymousFunction(): Expr.AnonymousFunction = function(
+            "Expect '(' after 'fun'.",
+            "Expect '{' before anonymous function body."
+        ).let { (params, body) -> Expr.AnonymousFunction(params, body) }
 
         private var current = 0
         private fun peek(): Token = tokens[current]
         private fun advance() {
             ++current
+        }
+
+        private fun retreat() {
+            --current
         }
 
         @Suppress("SameParameterValue")
