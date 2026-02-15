@@ -49,11 +49,23 @@ private fun execute(env: Environment, stmt: Stmt.NonDeclaration): Result = when 
     is Stmt.Return -> Result.Return(stmt.value?.let { evaluate(env, it) })
 }
 
-private fun execute(env: Environment, stmt: Stmt.Declaration): Environment = when (stmt) {
-    is Stmt.Var -> wrapIfScoped(env).define(stmt.name.lexeme, stmt.initializer?.let { evaluate(env, it) })
-    is Stmt.Function -> wrapIfScoped(env).define(
-        stmt.name.lexeme, Value.Function(stmt.name.lexeme, stmt.params, stmt.body, env)
-    )
+private fun execute(env: Environment, stmt: Stmt.Declaration): Environment {
+    val env = if (env.scoped) Environment(env) else env
+    when (stmt) {
+        is Stmt.Var -> {
+            // Initializer evaluated before variable declaration
+            val value = stmt.initializer?.let { evaluate(env, it) }
+            env.define(stmt.name.lexeme, value)
+        }
+
+        is Stmt.Function -> {
+            // Function declared before definition to support recursion
+            env.define(stmt.name.lexeme, null)
+            val value = Value.Function(stmt.name.lexeme, stmt.params, stmt.body, env)
+            env.assign(stmt.name, value)
+        }
+    }
+    return env
 }
 
 private fun executeBlock(env: Environment, statements: List<Stmt>): Result {
@@ -148,8 +160,6 @@ private fun call(callable: Value.Callable, arguments: List<Value>): Value = when
         (result as? Result.Return)?.value ?: Value.Nil
     }
 }
-
-private fun wrapIfScoped(env: Environment) = if (env.scoped) Environment(env) else env
 
 private fun truthy(value: Value): Boolean = when (value) {
     Value.Nil -> false

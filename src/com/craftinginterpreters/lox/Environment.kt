@@ -5,9 +5,8 @@ internal class Environment(private val enclosing: Environment? = null) {
 
     internal val scoped = enclosing != null
 
-    fun define(name: String, value: Value?): Environment {
+    fun define(name: String, value: Value?) {
         values[name] = value
-        return this
     }
 
     fun get(name: Token.Identifier): Value {
