@@ -14,4 +14,9 @@ internal sealed interface Value {
         val body: List<Stmt>,
         val closure: Environment
     ) : Callable(parameters.size)
+
+    data class Class(val name: kotlin.String, val methods: Map<kotlin.String, Function>) : Callable(0)
+    data class Instance(val klass: Class) : Value {
+        val fields = HashMap<kotlin.String, Value>()
+    }
 }

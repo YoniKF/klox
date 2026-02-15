@@ -26,7 +26,7 @@ internal class Interpreter {
 }
 
 private fun execute(env: Environment, stmt: Stmt.NonDeclaration): Result = when (stmt) {
-    is Stmt.Block -> executeBlock(Environment(env), stmt.statements)
+    is Stmt.Block -> executeBlock(env, stmt.statements)
     is Stmt.Expression -> evaluate(env, stmt.expression).let { Result.Continue }
     is Stmt.Print -> println(stringify(evaluate(env, stmt.expression))).let { Result.Continue }
     is Stmt.If -> {
@@ -61,12 +61,23 @@ private fun execute(env: Environment, stmt: Stmt.Declaration): Environment {
         is Stmt.Function -> {
             // Function declared before definition to support recursion
             env.define(stmt.name.lexeme, null)
-            val value = Value.Function(stmt.name.lexeme, stmt.params, stmt.body, env)
-            env.assign(stmt.name, value)
+            val function = functionStmtToValue(stmt, env)
+            env.assign(stmt.name, function)
+        }
+
+        is Stmt.Class -> {
+            // Class declared before definition to support reference to the class in its methods
+            env.define(stmt.name.lexeme, null)
+            val methods = stmt.methods.associateBy({ it.name.lexeme }, { functionStmtToValue(it, env) })
+            val klass = Value.Class(stmt.name.lexeme, methods)
+            env.assign(stmt.name, klass)
         }
     }
     return env
 }
+
+private fun functionStmtToValue(stmt: Stmt.Function, closure: Environment) =
+    Value.Function(stmt.name.lexeme, stmt.params, stmt.body, closure)
 
 private fun executeBlock(env: Environment, statements: List<Stmt>): Result {
     var env = env
@@ -148,6 +159,19 @@ private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
     }
 
     is Expr.AnonymousFunction -> Value.Function(null, expr.params, expr.body, env)
+    is Expr.Get -> {
+        val instance = evaluateInstance(env, expr.instance, expr.name, "Only instances have properties.")
+        get(instance, expr.name)
+    }
+
+    is Expr.Set -> {
+        val instance = evaluateInstance(env, expr.instance, expr.name, "Only instances have fields.")
+        val value = evaluate(env, expr.value)
+        set(instance, expr.name, value)
+        value
+    }
+
+    is Expr.This -> env.get(expr.keyword)
 }
 
 private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
@@ -159,6 +183,31 @@ private fun call(callable: Value.Callable, arguments: List<Value>): Value = when
         val result = executeBlock(env, callable.body)
         (result as? Result.Return)?.value ?: Value.Nil
     }
+
+    is Value.Class -> Value.Instance(callable)
+}
+
+private fun evaluateInstance(env: Environment, expr: Expr, name: Token.Identifier, message: String): Value.Instance {
+    val instance = evaluate(env, expr)
+    if (instance !is Value.Instance) throw RuntimeError(name, message)
+    return instance
+}
+
+private fun get(instance: Value.Instance, name: Token.Identifier): Value =
+    instance.fields[name.lexeme]
+        ?: get(instance.klass, name)?.let { bind(it, instance) }
+        ?: throw RuntimeError(name, "Undefined property '${name.lexeme}.'")
+
+private fun get(klass: Value.Class, name: Token.Identifier): Value.Function? = klass.methods[name.lexeme]
+
+private fun bind(method: Value.Function, instance: Value.Instance): Value.Function {
+    val env = Environment(method.closure)
+    env.define("this", instance)
+    return Value.Function(method.name, method.parameters, method.body, env)
+}
+
+private fun set(instance: Value.Instance, name: Token.Identifier, value: Value) {
+    instance.fields[name.lexeme] = value
 }
 
 private fun truthy(value: Value): Boolean = when (value) {
@@ -174,4 +223,6 @@ private fun stringify(value: Value): String = when (value) {
     is Value.String -> value.value
     is Value.NativeFunction -> "<native fun ${value.name}>"
     is Value.Function -> value.name?.let { "<fun ${value.name}>" } ?: "<anonymous fun>"
+    is Value.Class -> "<class ${value.name}>"
+    is Value.Instance -> "<${value.klass.name} instance>"
 }

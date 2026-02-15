@@ -14,6 +14,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             try {
                 if (match(TokenType.VAR)) return varDeclaration()
                 if (match(TokenType.FUN)) return function()
+                if (match(TokenType.CLASS)) return classDeclaration()
                 return statement()
             } catch (_: ParseError) {
                 synchronize()
@@ -29,20 +30,18 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun function(): Stmt = matchIdentifier()?.let {
-            namedFunction("function", it)
+            function("function", it)
         } ?: run {
             retreat() // Prepare to parse 'fun' as the beginning of an expression
             return expressionStatement()
         }
 
-        private fun namedFunction(kind: String, name: Token.Identifier): Stmt.Function = function(
-            "Expect '(' after $kind name.",
-            "Expect '{' before $kind body."
+        private fun function(kind: String, name: Token.Identifier): Stmt.Function = function(
+            "Expect '(' after $kind name.", "Expect '{' before $kind body."
         ).let { (params, body) -> Stmt.Function(name, params, body) }
 
         private fun function(
-            expectLeftParen: String,
-            expectLeftBrace: String
+            expectLeftParen: String, expectLeftBrace: String
         ): Pair<List<Token.Identifier>, List<Stmt>> {
             consume(TokenType.LEFT_PAREN, expectLeftParen)
             val params = buildList {
@@ -54,13 +53,30 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             }
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
             consume(TokenType.LEFT_BRACE, expectLeftBrace)
-            scopes.addLast(Scope(function = true, loop = false))
+            scopes.addLast(scopes.last().withFunction())
             val body = try {
                 block()
             } finally {
                 scopes.removeLast()
             }
             return Pair(params, body)
+        }
+
+        private fun classDeclaration(): Stmt.Class {
+            val name = consumerIdentifier("Expect class name.")
+            consume(TokenType.LEFT_BRACE, "Expect '{' before class body.")
+            scopes.addLast(Scope.KLASS)
+            val methods = try {
+                buildList {
+                    while (!check(TokenType.RIGHT_BRACE) && !atEnd()) {
+                        add(function("method", consumerIdentifier("Expect method name.")))
+                    }
+                    consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.")
+                }
+            } finally {
+                scopes.removeLast()
+            }
+            return Stmt.Class(name, methods)
         }
 
         private fun statement(): Stmt.NonDeclaration {
@@ -118,10 +134,10 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return initializer?.let { Stmt.Block(listOf(initializer, loop)) } ?: loop
         }
 
-        val scopes = mutableListOf(Scope(function = false, loop = false))
+        val scopes = mutableListOf(Scope.GLOBAL)
 
         private fun loopBody(): Stmt.NonDeclaration {
-            scopes.addLast(Scope(scopes.last().function, true))
+            scopes.addLast(scopes.last().withLoop())
             val body = try {
                 statement()
             } finally {
@@ -131,17 +147,13 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun breakStatement(): Stmt.Break {
-            if (!scopes.last().loop) {
-                throw error(tokens[current - 1], "Encountered 'break' outside a loop.")
-            }
+            if (!scopes.last().loop) throw error(tokens[current - 1], "Can't break outside of a loop.")
             consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
             return Stmt.Break
         }
 
         private fun returnStatement(keyword: Token.Simple): Stmt.Return {
-            if (!scopes.last().function) {
-                throw error(tokens[current - 1], "Encountered 'return' outside a function definition.")
-            }
+            if (!scopes.last().function) throw error(tokens[current - 1], "Can't return from top-level code.")
             val value = if (check(TokenType.SEMICOLON)) null else expression()
             consume(TokenType.SEMICOLON, "Expect ';' after return value.")
             return Stmt.Return(keyword, value)
@@ -170,6 +182,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val value = assignment()
             return when (expr) {
                 is Expr.Variable -> Expr.Assign(expr.name, value)
+                is Expr.Get -> Expr.Set(expr.instance, expr.name, value)
                 else -> {
                     error(equal, "Invalid assignment target.")
                     expr // Return whatever we could parse
@@ -235,16 +248,20 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         private fun call(): Expr {
             var expr = primary()
             while (true) {
-                if (!match(TokenType.LEFT_PAREN)) break
-                val arguments = buildList {
-                    if (check(TokenType.RIGHT_PAREN)) return@buildList
-                    do {
-                        if (size >= 255) error(peek(), "Can't have more than 255 arguments.")
-                        add(expression())
-                    } while (match(TokenType.COMMA))
-                }
-                val paren = consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments.")
-                expr = Expr.Call(expr, paren, arguments)
+                if (match(TokenType.LEFT_PAREN)) {
+                    val arguments = buildList {
+                        if (check(TokenType.RIGHT_PAREN)) return@buildList
+                        do {
+                            if (size >= 255) error(peek(), "Can't have more than 255 arguments.")
+                            add(expression())
+                        } while (match(TokenType.COMMA))
+                    }
+                    val paren = consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments.")
+                    expr = Expr.Call(expr, paren, arguments)
+                } else if (match(TokenType.DOT)) {
+                    val name = consumerIdentifier("Expect property name after '.'.")
+                    expr = Expr.Get(expr, name)
+                } else break
             }
             return expr
         }
@@ -257,6 +274,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             matchNumberLiteral()?.let { return Expr.Literal(Value.Number(it)) }
             matchStringLiteral()?.let { return Expr.Literal(Value.String(it)) }
             matchIdentifier()?.let { return Expr.Variable(it) }
+            matchThis()?.let { return thisExpression(it) }
 
             if (match(TokenType.LEFT_PAREN)) {
                 val expr = expression()
@@ -269,9 +287,13 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             throw error(peek(), "Expect expression.")
         }
 
+        private fun thisExpression(keyword: Token.This): Expr.This {
+            if (!scopes.last().klass) throw error(tokens[current - 1], "Can't use 'this' outside of a class.")
+            return Expr.This(keyword)
+        }
+
         private fun anonymousFunction(): Expr.AnonymousFunction = function(
-            "Expect '(' after 'fun'.",
-            "Expect '{' before anonymous function body."
+            "Expect '(' after 'fun'.", "Expect '{' before anonymous function body."
         ).let { (params, body) -> Expr.AnonymousFunction(params, body) }
 
         private var current = 0
@@ -311,6 +333,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         private fun matchNumberLiteral(): Double? = (peek() as? Token.Number)?.let { advance(); it.value }
         private fun matchStringLiteral(): String? = (peek() as? Token.String)?.let { advance(); it.value }
         private fun matchIdentifier(): Token.Identifier? = (peek() as? Token.Identifier)?.also { advance() }
+        private fun matchThis(): Token.This? = (peek() as? Token.This)?.also { advance() }
 
         private fun consume(type: TokenType, message: String): Token.Simple =
             matchToken(type) ?: throw error(peek(), message)
@@ -346,5 +369,14 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     return parser.parse()
 }
 
-private data class Scope(val function: Boolean, val loop: Boolean)
+private data class Scope(val klass: Boolean, val function: Boolean, val loop: Boolean) {
+    companion object {
+        val GLOBAL = Scope(klass = false, function = false, loop = false)
+        val KLASS = Scope(klass = true, function = false, loop = false)
+    }
+
+    fun withFunction() = Scope(klass, function = true, loop = false)
+    fun withLoop() = Scope(klass, function, loop = true)
+}
+
 private class ParseError : RuntimeException()

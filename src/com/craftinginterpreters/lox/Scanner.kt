@@ -81,7 +81,9 @@ internal fun scan(source: String): List<Token> {
 
     fun identifier() {
         advanceWhile(::isAlphaNumeric)
-        tokens += keywords[text()]?.let { Token.Simple(it, text(), line) } ?: Token.Identifier(text(), line)
+        val text = text()
+        tokens += if (text == "this") Token.This(text, line)
+        else keywords[text]?.let { Token.Simple(it, text(), line) } ?: Token.Identifier(text, line)
     }
 
     while (!atEnd()) {
@@ -149,7 +151,6 @@ private val keywords = mapOf(
     "print" to TokenType.PRINT,
     "return" to TokenType.RETURN,
     "super" to TokenType.SUPER,
-    "this" to TokenType.THIS,
     "true" to TokenType.TRUE,
     "var" to TokenType.VAR,
     "while" to TokenType.WHILE,
