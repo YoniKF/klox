@@ -67,10 +67,16 @@ private fun execute(env: Environment, stmt: Stmt.Declaration): Environment {
         }
 
         is Stmt.Class -> {
+            val superclass = stmt.superclass?.let {
+                evaluate(env, it) as? Value.Class ?: throw RuntimeError(
+                    it.name, "Superclass must be a class."
+                )
+            }
             // Class declared before definition to support reference to the class in its methods
             env.define(stmt.name.lexeme, null)
-            val methods = stmt.methods.associateBy({ it.name.lexeme }, { functionStmtToValue(it, env) })
-            val klass = Value.Class(stmt.name.lexeme, methods)
+            val closure = if (superclass == null) env else Environment(env).apply { defineSuper(superclass) }
+            val methods = stmt.methods.associateBy({ it.name.lexeme }, { functionStmtToValue(it, closure) })
+            val klass = Value.Class(stmt.name.lexeme, superclass, methods)
             env.assign(stmt.name, klass)
         }
     }
@@ -174,12 +180,21 @@ private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
     }
 
     is Expr.This -> env.get(expr.keyword)
+    is Expr.Super -> get(env.getSuper(expr.keyword), expr.method.lexeme)?.let {
+        bind(
+            it,
+            env.get(Token.This("this", expr.keyword.line)) as Value.Instance // :(
+        )
+    } ?: throw RuntimeError(
+        expr.method, "Undefined property '${expr.method.lexeme}'."
+    )
 }
 
-private fun arity(callable: Value.Callable) = when (callable) {
+private fun arity(callable: Value.Callable): Int = when (callable) {
     is Value.NativeFunction -> 0
     is Value.Function -> callable.parameters.size
-    is Value.Class -> getInit(callable)?.parameters?.size ?: 0
+    is Value.BoundInit -> arity(callable.function)
+    is Value.Class -> getInit(callable)?.let(::arity) ?: 0
 }
 
 private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
@@ -189,8 +204,13 @@ private fun call(callable: Value.Callable, arguments: List<Value>): Value = when
             callable.parameters.zip(arguments) { parameter, argument -> define(parameter.lexeme, argument) }
         }
         val result = executeBlock(env, callable.body)
+        (result as? Result.Return)?.value ?: Value.Nil
+    }
+
+    is Value.BoundInit -> {
+        call(callable.function, arguments)
         // If the function is an initializer, we override the actual return value and forcibly return this.
-        (callable as? Value.BoundInit)?.instance ?: (result as? Result.Return)?.value ?: Value.Nil
+        callable.instance
     }
 
     is Value.Class -> {
@@ -207,20 +227,20 @@ private fun evaluateInstance(env: Environment, expr: Expr, name: Token.Identifie
 }
 
 private fun get(instance: Value.Instance, name: Token.Identifier): Value =
-    instance.fields[name.lexeme]
-        ?: get(instance.klass, name.lexeme)?.let { bind(it, instance) }
-        ?: throw RuntimeError(name, "Undefined property '${name.lexeme}'.")
+    instance.fields[name.lexeme] ?: get(instance.klass, name.lexeme)?.let { bind(it, instance) } ?: throw RuntimeError(
+        name, "Undefined property '${name.lexeme}'."
+    )
 
-private fun get(klass: Value.Class, name: String): Value.Function? = klass.methods[name]
-private fun getInit(klass: Value.Class): Value.Function? = klass.methods["init"]
+private fun get(klass: Value.Class, name: String): Value.Function? =
+    klass.methods[name] ?: klass.superclass?.let { get(it, name) }
 
-private fun bind(method: Value.Function, instance: Value.Instance): Value.Function {
+private fun getInit(klass: Value.Class): Value.Function? = get(klass, "init")
+
+private fun bind(method: Value.Function, instance: Value.Instance): Value.Callable {
     val env = Environment(method.closure)
     env.define("this", instance)
-    return if (method.name == "init")
-        Value.BoundInit(method.name, method.parameters, method.body, env, instance)
-    else
-        Value.Function(method.name, method.parameters, method.body, env)
+    val bound = Value.Function(method.name, method.parameters, method.body, env)
+    return if (method.name == "init") Value.BoundInit(bound, instance) else bound
 }
 
 private fun set(instance: Value.Instance, name: Token.Identifier, value: Value) {
@@ -240,6 +260,7 @@ private fun stringify(value: Value): String = when (value) {
     is Value.String -> value.value
     is Value.NativeFunction -> "<native fun ${value.name}>"
     is Value.Function -> value.name?.let { "<fun ${value.name}>" } ?: "<anonymous fun>"
+    is Value.BoundInit -> stringify(value.function)
     is Value.Class -> "<class ${value.name}>"
     is Value.Instance -> "<${value.klass.name} instance>"
 }

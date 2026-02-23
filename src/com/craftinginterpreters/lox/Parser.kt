@@ -64,8 +64,14 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
 
         private fun classDeclaration(): Stmt.Class {
             val name = consumerIdentifier("Expect class name.")
+            val superclass =
+                matchToken(TokenType.LESS)?.let { Expr.Variable(consumerIdentifier("Expect superclass name")) }
+            if (name.lexeme == superclass?.name?.lexeme) Lox.error(
+                superclass.name,
+                "A class can't inherit from itself."
+            )
             consume(TokenType.LEFT_BRACE, "Expect '{' before class body.")
-            scopes.addLast(Scope.KLASS)
+            scopes.addLast(Scope.klass(superclass != null))
             val methods = try {
                 buildList {
                     while (!check(TokenType.RIGHT_BRACE) && !atEnd()) {
@@ -77,7 +83,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             } finally {
                 scopes.removeLast()
             }
-            return Stmt.Class(name, methods)
+            return Stmt.Class(name, superclass, methods)
         }
 
         private fun statement(): Stmt.NonDeclaration {
@@ -85,7 +91,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             if (match(TokenType.IF)) return ifStatement()
             if (match(TokenType.WHILE)) return whileStatement()
             if (match(TokenType.FOR)) return forStatement()
-            matchToken(TokenType.BREAK) ?. let { return breakStatement(it) }
+            matchToken(TokenType.BREAK)?.let { return breakStatement(it) }
             matchToken(TokenType.RETURN)?.let { return returnStatement(it) }
             if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
             return expressionStatement()
@@ -281,6 +287,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             matchStringLiteral()?.let { return Expr.Literal(Value.String(it)) }
             matchIdentifier()?.let { return Expr.Variable(it) }
             matchThis()?.let { return thisExpression(it) }
+            matchToken(TokenType.SUPER)?.let { return superExpression(it) }
 
             if (match(TokenType.LEFT_PAREN)) {
                 val expr = expression()
@@ -294,8 +301,19 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun thisExpression(keyword: Token.This): Expr.This {
-            if (!scopes.last().klass) error(keyword, "Can't use 'this' outside of a class.")
+            if (scopes.last().klass == null) error(keyword, "Can't use 'this' outside of a class.")
             return Expr.This(keyword)
+        }
+
+        private fun superExpression(keyword: Token.Simple): Expr.Super {
+            when (scopes.last().klass) {
+                null -> error(keyword, "Can't use 'super' outside of a class.")
+                ClassType.SUBCLASS -> {}
+                else -> Lox.error(keyword, "Can't use 'super' in a class with no superclass.")
+            }
+            consume(TokenType.DOT, "Expect '.' after 'super'.")
+            val method = consumerIdentifier("Expect superclass method name.")
+            return Expr.Super(keyword, method)
         }
 
         private fun anonymousFunction(): Expr.AnonymousFunction = function(
@@ -375,12 +393,14 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     return parser.parse()
 }
 
+private enum class ClassType { OTHER, SUBCLASS }
 private enum class FunctionType { OTHER, INIT }
 
-private data class Scope(val klass: Boolean, val function: FunctionType?, val loop: Boolean) {
+private data class Scope(val klass: ClassType?, val function: FunctionType?, val loop: Boolean) {
     companion object {
-        val GLOBAL = Scope(klass = false, function = null, loop = false)
-        val KLASS = Scope(klass = true, function = null, loop = false)
+        val GLOBAL = Scope(klass = null, function = null, loop = false)
+        fun klass(sub: Boolean) =
+            Scope(klass = if (sub) ClassType.SUBCLASS else ClassType.OTHER, function = null, loop = false)
     }
 
     fun withFunction(init: Boolean) =

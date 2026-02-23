@@ -15,5 +15,6 @@ internal sealed interface Stmt {
     data class Function(val name: Token.Identifier, val params: List<Token.Identifier>, val body: List<Stmt>) :
         Declaration
 
-    data class Class(val name: Token.Identifier, val methods: List<Function>) : Declaration
+    data class Class(val name: Token.Identifier, val superclass: Expr.Variable?, val methods: List<Function>) :
+        Declaration
 }

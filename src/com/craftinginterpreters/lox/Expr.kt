@@ -29,4 +29,5 @@ internal sealed interface Expr {
     data class Get(val instance: Expr, val name: Token.Identifier) : Expr
     data class Set(val instance: Expr, val name: Token.Identifier, val value: Expr) : Expr
     data class This(val keyword: Token.This) : Expr
+    data class Super(val keyword: Token.Simple, val method: Token.Identifier) : Expr
 }

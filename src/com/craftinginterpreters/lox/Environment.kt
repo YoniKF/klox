@@ -2,6 +2,7 @@ package com.craftinginterpreters.lox
 
 internal class Environment(private val enclosing: Environment? = null) {
     private val values = HashMap<String, Value?>()
+    private var superclass: Value.Class? = null
 
     internal val scoped = enclosing != null
 
@@ -23,4 +24,11 @@ internal class Environment(private val enclosing: Environment? = null) {
         else if (enclosing != null) enclosing.assign(name, value)
         else throw RuntimeError(name, "Undefined variable '${name.lexeme}'.")
     }
+
+    fun defineSuper(value: Value.Class) {
+        superclass = value
+    }
+
+    fun getSuper(token: Token.Simple): Value.Class =
+        superclass ?: enclosing?.getSuper(token) ?: throw RuntimeError(token, "No superclass.")
 }
