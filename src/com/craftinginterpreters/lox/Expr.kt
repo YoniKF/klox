@@ -12,7 +12,6 @@ internal enum class BinaryOperator {
 
 internal enum class LogicalBinaryOperator { AND, OR }
 
-// Code in book uses the visitor pattern
 internal sealed interface Expr {
     data class Grouping(val expression: Expr) : Expr
     data class Literal(val value: Value) : Expr

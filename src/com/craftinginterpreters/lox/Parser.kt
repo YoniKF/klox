@@ -330,7 +330,6 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             --current
         }
 
-        @Suppress("SameParameterValue")
         private fun check(type: TokenType): Boolean = (peek() as? Token.Simple)?.type == type
         private fun atEnd(): Boolean = peek() is Token.Eof
 
