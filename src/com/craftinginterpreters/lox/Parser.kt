@@ -67,8 +67,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val superclass =
                 matchToken(TokenType.LESS)?.let { Expr.Variable(consumerIdentifier("Expect superclass name")) }
             if (name.lexeme == superclass?.name?.lexeme) Lox.error(
-                superclass.name,
-                "A class can't inherit from itself."
+                superclass.name, "A class can't inherit from itself."
             )
             consume(TokenType.LEFT_BRACE, "Expect '{' before class body.")
             scopes.addLast(Scope.klass(superclass != null))
@@ -165,8 +164,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val value = if (check(TokenType.SEMICOLON)) null else expression()
             consume(TokenType.SEMICOLON, "Expect ';' after return value.")
             if (value != null && functionScope == FunctionType.INIT) error(
-                keyword,
-                "Can't return a value from an initializer."
+                keyword, "Can't return a value from an initializer."
             )
             return Stmt.Return(keyword, value)
         }
@@ -398,14 +396,11 @@ private enum class FunctionType { OTHER, INIT }
 private data class Scope(val klass: ClassType?, val function: FunctionType?, val loop: Boolean) {
     companion object {
         val GLOBAL = Scope(klass = null, function = null, loop = false)
-        fun klass(sub: Boolean) =
-            Scope(klass = if (sub) ClassType.SUBCLASS else ClassType.OTHER, function = null, loop = false)
+        fun klass(sub: Boolean) = GLOBAL.copy(klass = if (sub) ClassType.SUBCLASS else ClassType.OTHER)
     }
 
-    fun withFunction(init: Boolean) =
-        Scope(klass, function = if (init) FunctionType.INIT else FunctionType.OTHER, loop = false)
-
-    fun withLoop() = Scope(klass, function, loop = true)
+    fun withFunction(init: Boolean) = copy(function = if (init) FunctionType.INIT else FunctionType.OTHER, loop = false)
+    fun withLoop() = copy(loop = true)
 }
 
 private class ParseError : RuntimeException()

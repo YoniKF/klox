@@ -239,7 +239,7 @@ private fun getInit(klass: Value.Class): Value.Function? = get(klass, "init")
 private fun bind(method: Value.Function, instance: Value.Instance): Value.Callable {
     val env = Environment(method.closure)
     env.define("this", instance)
-    val bound = Value.Function(method.name, method.parameters, method.body, env)
+    val bound = method.copy(closure = env)
     return if (method.name == "init") Value.BoundInit(bound, instance) else bound
 }
 
