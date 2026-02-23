@@ -6,16 +6,25 @@ internal sealed interface Value {
     data class Number(val value: Double) : Value
     data class String(val value: kotlin.String) : Value
 
-    sealed class Callable(val arity: Int) : Value
-    data class NativeFunction(val name: kotlin.String, val block: () -> Value) : Callable(0)
-    data class Function(
+    sealed interface Callable : Value
+    data class NativeFunction(val name: kotlin.String, val block: () -> Value) : Callable
+    open class Function(
         val name: kotlin.String?,
         val parameters: List<Token.Identifier>,
         val body: List<Stmt>,
         val closure: Environment
-    ) : Callable(parameters.size)
+    ) : Callable
 
-    data class Class(val name: kotlin.String, val methods: Map<kotlin.String, Function>) : Callable(0)
+    class BoundInit(
+        name: kotlin.String?,
+        parameters: List<Token.Identifier>,
+        body: List<Stmt>,
+        closure: Environment,
+        val instance: Instance
+    ) : Function(name, parameters, body, closure)
+
+    data class Class(val name: kotlin.String, val methods: Map<kotlin.String, Function>) : Callable
+
     data class Instance(val klass: Class) : Value {
         val fields = HashMap<kotlin.String, Value>()
     }

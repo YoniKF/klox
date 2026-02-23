@@ -36,12 +36,12 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return expressionStatement()
         }
 
-        private fun function(kind: String, name: Token.Identifier): Stmt.Function = function(
-            "Expect '(' after $kind name.", "Expect '{' before $kind body."
+        private fun function(kind: String, name: Token.Identifier, init: Boolean = false): Stmt.Function = function(
+            "Expect '(' after $kind name.", "Expect '{' before $kind body.", init
         ).let { (params, body) -> Stmt.Function(name, params, body) }
 
         private fun function(
-            expectLeftParen: String, expectLeftBrace: String
+            expectLeftParen: String, expectLeftBrace: String, init: Boolean = false
         ): Pair<List<Token.Identifier>, List<Stmt>> {
             consume(TokenType.LEFT_PAREN, expectLeftParen)
             val params = buildList {
@@ -53,7 +53,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             }
             consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
             consume(TokenType.LEFT_BRACE, expectLeftBrace)
-            scopes.addLast(scopes.last().withFunction())
+            scopes.addLast(scopes.last().withFunction(init))
             val body = try {
                 block()
             } finally {
@@ -69,7 +69,8 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             val methods = try {
                 buildList {
                     while (!check(TokenType.RIGHT_BRACE) && !atEnd()) {
-                        add(function("method", consumerIdentifier("Expect method name.")))
+                        val methodName = consumerIdentifier("Expect method name.")
+                        add(function("method", methodName, methodName.lexeme == "init"))
                     }
                     consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.")
                 }
@@ -84,7 +85,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             if (match(TokenType.IF)) return ifStatement()
             if (match(TokenType.WHILE)) return whileStatement()
             if (match(TokenType.FOR)) return forStatement()
-            if (match(TokenType.BREAK)) return breakStatement()
+            matchToken(TokenType.BREAK) ?. let { return breakStatement(it) }
             matchToken(TokenType.RETURN)?.let { return returnStatement(it) }
             if (match(TokenType.LEFT_BRACE)) return Stmt.Block(block())
             return expressionStatement()
@@ -146,16 +147,21 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
             return body
         }
 
-        private fun breakStatement(): Stmt.Break {
-            if (!scopes.last().loop) throw error(tokens[current - 1], "Can't break outside of a loop.")
+        private fun breakStatement(keyword: Token.Simple): Stmt.Break {
+            if (!scopes.last().loop) error(keyword, "Can't break outside of a loop.")
             consume(TokenType.SEMICOLON, "Expect ';' after 'break'.")
             return Stmt.Break
         }
 
         private fun returnStatement(keyword: Token.Simple): Stmt.Return {
-            if (!scopes.last().function) throw error(tokens[current - 1], "Can't return from top-level code.")
+            val functionScope = scopes.last().function
+            if (functionScope == null) error(keyword, "Can't return from top-level code.")
             val value = if (check(TokenType.SEMICOLON)) null else expression()
             consume(TokenType.SEMICOLON, "Expect ';' after return value.")
+            if (value != null && functionScope == FunctionType.INIT) error(
+                keyword,
+                "Can't return a value from an initializer."
+            )
             return Stmt.Return(keyword, value)
         }
 
@@ -288,7 +294,7 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
         }
 
         private fun thisExpression(keyword: Token.This): Expr.This {
-            if (!scopes.last().klass) throw error(tokens[current - 1], "Can't use 'this' outside of a class.")
+            if (!scopes.last().klass) error(keyword, "Can't use 'this' outside of a class.")
             return Expr.This(keyword)
         }
 
@@ -369,13 +375,17 @@ internal fun parse(tokens: List<Token>, prompt: Boolean): List<Stmt> {
     return parser.parse()
 }
 
-private data class Scope(val klass: Boolean, val function: Boolean, val loop: Boolean) {
+private enum class FunctionType { OTHER, INIT }
+
+private data class Scope(val klass: Boolean, val function: FunctionType?, val loop: Boolean) {
     companion object {
-        val GLOBAL = Scope(klass = false, function = false, loop = false)
-        val KLASS = Scope(klass = true, function = false, loop = false)
+        val GLOBAL = Scope(klass = false, function = null, loop = false)
+        val KLASS = Scope(klass = true, function = null, loop = false)
     }
 
-    fun withFunction() = Scope(klass, function = true, loop = false)
+    fun withFunction(init: Boolean) =
+        Scope(klass, function = if (init) FunctionType.INIT else FunctionType.OTHER, loop = false)
+
     fun withLoop() = Scope(klass, function, loop = true)
 }
 

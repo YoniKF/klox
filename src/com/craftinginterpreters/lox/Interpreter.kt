@@ -152,8 +152,9 @@ private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
         val callee = evaluate(env, expr.callee)
         val arguments = expr.arguments.map { evaluate(env, it) }
         if (callee !is Value.Callable) throw RuntimeError(expr.paren, "Can only call functions and classes.")
-        if (arguments.size != callee.arity) throw RuntimeError(
-            expr.paren, "Expected ${callee.arity} arguments but got ${arguments.size}."
+        val arity = arity(callee)
+        if (arguments.size != arity(callee)) throw RuntimeError(
+            expr.paren, "Expected $arity arguments but got ${arguments.size}."
         )
         call(callee, arguments)
     }
@@ -174,6 +175,12 @@ private fun evaluate(env: Environment, expr: Expr): Value = when (expr) {
     is Expr.This -> env.get(expr.keyword)
 }
 
+private fun arity(callable: Value.Callable) = when (callable) {
+    is Value.NativeFunction -> 0
+    is Value.Function -> callable.parameters.size
+    is Value.Class -> getInit(callable)?.parameters?.size ?: 0
+}
+
 private fun call(callable: Value.Callable, arguments: List<Value>): Value = when (callable) {
     is Value.NativeFunction -> callable.block()
     is Value.Function -> {
@@ -181,10 +188,15 @@ private fun call(callable: Value.Callable, arguments: List<Value>): Value = when
             callable.parameters.zip(arguments) { parameter, argument -> define(parameter.lexeme, argument) }
         }
         val result = executeBlock(env, callable.body)
-        (result as? Result.Return)?.value ?: Value.Nil
+        // If the function is an initializer, we override the actual return value and forcibly return this.
+        (callable as? Value.BoundInit)?.instance ?: (result as? Result.Return)?.value ?: Value.Nil
     }
 
-    is Value.Class -> Value.Instance(callable)
+    is Value.Class -> {
+        val instance = Value.Instance(callable)
+        getInit(callable)?.let { call(bind(it, instance), arguments) }
+        instance
+    }
 }
 
 private fun evaluateInstance(env: Environment, expr: Expr, name: Token.Identifier, message: String): Value.Instance {
@@ -195,15 +207,19 @@ private fun evaluateInstance(env: Environment, expr: Expr, name: Token.Identifie
 
 private fun get(instance: Value.Instance, name: Token.Identifier): Value =
     instance.fields[name.lexeme]
-        ?: get(instance.klass, name)?.let { bind(it, instance) }
+        ?: get(instance.klass, name.lexeme)?.let { bind(it, instance) }
         ?: throw RuntimeError(name, "Undefined property '${name.lexeme}.'")
 
-private fun get(klass: Value.Class, name: Token.Identifier): Value.Function? = klass.methods[name.lexeme]
+private fun get(klass: Value.Class, name: String): Value.Function? = klass.methods[name]
+private fun getInit(klass: Value.Class): Value.Function? = klass.methods["init"]
 
 private fun bind(method: Value.Function, instance: Value.Instance): Value.Function {
     val env = Environment(method.closure)
     env.define("this", instance)
-    return Value.Function(method.name, method.parameters, method.body, env)
+    return if (method.name == "init")
+        Value.BoundInit(method.name, method.parameters, method.body, env, instance)
+    else
+        Value.Function(method.name, method.parameters, method.body, env)
 }
 
 private fun set(instance: Value.Instance, name: Token.Identifier, value: Value) {
