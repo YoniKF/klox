@@ -26,7 +26,7 @@ internal class Interpreter {
 }
 
 private fun execute(env: Environment, stmt: Stmt.NonDeclaration): Result = when (stmt) {
-    is Stmt.Block -> executeBlock(env, stmt.statements)
+    is Stmt.Block -> executeBlock(Environment(env), stmt.statements)
     is Stmt.Expression -> evaluate(env, stmt.expression).let { Result.Continue }
     is Stmt.Print -> println(stringify(evaluate(env, stmt.expression))).let { Result.Continue }
     is Stmt.If -> {
@@ -35,8 +35,9 @@ private fun execute(env: Environment, stmt: Stmt.NonDeclaration): Result = when 
         else Result.Continue
     }
 
-    is Stmt.While -> generateSequence { execute(env, stmt.body) }.takeWhile {
-        truthy(evaluate(env, stmt.condition))
+    is Stmt.While -> generateSequence {
+        if (!truthy(evaluate(env, stmt.condition))) Result.Break
+        else execute(env, stmt.body)
     }.firstNotNullOfOrNull {
         when (it) {
             Result.Break -> Result.Continue
@@ -208,7 +209,7 @@ private fun evaluateInstance(env: Environment, expr: Expr, name: Token.Identifie
 private fun get(instance: Value.Instance, name: Token.Identifier): Value =
     instance.fields[name.lexeme]
         ?: get(instance.klass, name.lexeme)?.let { bind(it, instance) }
-        ?: throw RuntimeError(name, "Undefined property '${name.lexeme}.'")
+        ?: throw RuntimeError(name, "Undefined property '${name.lexeme}'.")
 
 private fun get(klass: Value.Class, name: String): Value.Function? = klass.methods[name]
 private fun getInit(klass: Value.Class): Value.Function? = klass.methods["init"]
